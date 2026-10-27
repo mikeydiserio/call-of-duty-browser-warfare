@@ -6,6 +6,8 @@ import { WEAPONS } from '../weapons/defs'
 import { damp, el, fmtTime, retrigger, setClass, Txt } from './dom'
 import { emblemSvg, ICON, weaponSvg } from './icons'
 import { Minimap } from './minimap'
+import { ModeHud } from './mode-hud'
+import { ffaStandings, ordinal } from './modes'
 
 const DESIGN_H = 1080
 const FRIEND_CLS = 'friend'
@@ -60,6 +62,12 @@ export class Hud {
   private timer: Txt
   private timerEl: HTMLElement
   private lastScore = [-1, -1]
+  private scoreEl!: HTMLElement
+  private emFriend!: HTMLElement
+  private emEnemy!: HTMLElement
+  private scoreLayout = ''
+  private place!: Txt
+  private modeHud: ModeHud
 
   // ammo
   private ammoCanvas: HTMLCanvasElement
@@ -91,7 +99,7 @@ export class Hud {
   private feedRows: FeedRow[] = []
 
   // announcements
-  private announce: HTMLElement
+  private announceEl: HTMLElement
   private annT: Txt
   private annS: Txt
   private annQueue: { text: string; sub?: string; cls: string }[] = []
@@ -136,21 +144,24 @@ export class Hud {
 
     // ── score block ──
     const score = el('div', 'hud-score', root)
+    this.scoreEl = score
     const trow = el('div', 'sc-time', score)
     el('span', 'sc-timelabel', trow, 'TIME')
     this.timerEl = el('span', 'sc-timer', trow)
     this.timer = new Txt(this.timerEl)
-    const mk = (team: Team, cls: string) => {
+    this.place = new Txt(el('span', 'sc-place', trow))
+    const mk = (cls: string) => {
       const r = el('div', `sc-row ${cls}`, score)
       const em = el('span', 'sc-emblem', r)
-      em.innerHTML = emblemSvg(team)
       const track = el('div', 'sc-track', r)
       const fill = el('i', '', track)
       const num = el('span', 'sc-num', r)
-      return { fill, num: new Txt(num) }
+      return { em, fill, num: new Txt(num) }
     }
-    const f = mk('tf141', FRIEND_CLS)
-    const e = mk('opfor', ENEMY_CLS)
+    const f = mk(FRIEND_CLS)
+    const e = mk(ENEMY_CLS)
+    this.emFriend = f.em
+    this.emEnemy = e.em
     this.barFriend = f.fill
     this.barEnemy = e.fill
     this.scoreFriend = f.num
@@ -186,9 +197,9 @@ export class Hud {
     this.promptSub = new Txt(el('div', 'pr-sub', this.prompt))
 
     // ── announcements ──
-    this.announce = el('div', 'hud-announce', root)
-    this.annT = new Txt(el('div', 'an-t', this.announce))
-    this.annS = new Txt(el('div', 'an-s', this.announce))
+    this.announceEl = el('div', 'hud-announce', root)
+    this.annT = new Txt(el('div', 'an-t', this.announceEl))
+    this.annS = new Txt(el('div', 'an-s', this.announceEl))
     this.streakSplash = el('div', 'hud-ssplash', root)
     this.ssT = new Txt(el('div', 'an-t', this.streakSplash))
     this.ssS = new Txt(el('div', 'an-s', this.streakSplash))
@@ -214,6 +225,10 @@ export class Hud {
       this.gren.push({ el: g, icon, pos: null, born: 0, angle: 0, active: false })
     }
 
+    // ── objective modes ──
+    this.modeHud = new ModeHud(game, (t, sub, cls) => this.announce(t, sub, cls))
+    root.appendChild(this.modeHud.el)
+
     // ── death ──
     this.death = el('div', 'hud-death', root)
     el('div', 'd-by', this.death, 'KILLED BY')
@@ -227,6 +242,7 @@ export class Hud {
 
   resize(designToPx: number) {
     this.minimap.resize(designToPx)
+    this.modeHud.resize(window.innerWidth / designToPx)
     this.canvasScale = designToPx * Math.min(window.devicePixelRatio || 1, 2)
     this.ammoSig = '' // force ammo canvas redraw at new resolution
   }
@@ -236,7 +252,7 @@ export class Hud {
     this.annQueue.length = 0
     this.annUntil = 0
     this.ssUntil = 0
-    this.announce.classList.remove('on')
+    this.announceEl.classList.remove('on')
     this.streakSplash.classList.remove('on')
     this.feed.textContent = ''
     this.feedRows.length = 0
@@ -248,7 +264,14 @@ export class Hud {
     this.lastScore = [-1, -1]
     this.ammoSig = ''
     this.lastStreakN = 0
+    this.scoreLayout = ''
+    this.modeHud.reset()
     setClass(this.death, 'on', false)
+  }
+
+  /** Queue a centre announcement (mode splashes use this too). */
+  announce(text: string, sub = '', cls: 'friend' | 'enemy' = 'friend') {
+    this.annQueue.push({ text, sub: sub || undefined, cls })
   }
 
   /** When true, announcements are held back (e.g. while the loading screen is up). */
@@ -270,7 +293,7 @@ export class Hud {
           name: k && k !== info.victim ? k.name : '',
           weaponId: info.weaponId,
           headshot: info.headshot,
-          enemy: !!k && k.team !== info.victim.team,
+          enemy: !!k && g.mode.isEnemy(info.victim, k),
         }
       }
     })
@@ -333,8 +356,9 @@ export class Hud {
   }
 
   private addFeed(killer: Actor | null, victim: Actor, weaponId: WeaponId, headshot: boolean) {
-    const mine = this.game.player.team
-    const cls = (a: Actor) => (a.isPlayer ? 'you' : a.team === mine ? FRIEND_CLS : ENEMY_CLS)
+    const me = this.game.player
+    const mode = this.game.mode
+    const cls = (a: Actor) => (a.isPlayer ? 'you' : mode.isEnemy(me, a) ? ENEMY_CLS : FRIEND_CLS)
     const row = el('div', 'kf')
     if (killer && killer !== victim) {
       el('span', `kf-n ${cls(killer)}`, row, killer.name)
@@ -419,24 +443,60 @@ export class Hud {
     this.updateAnnounce(now)
     this.updateStreak()
     this.updateIndicators(now)
+    this.modeHud.update()
     this.updateDeath(playing)
   }
 
   private updateScore() {
-    const m = this.game.mode
-    const mine = this.game.player.team
-    const theirs: Team = mine === 'tf141' ? 'opfor' : 'tf141'
-    const a = m.score[mine]
-    const b = m.score[theirs]
+    const g = this.game
+    const m = g.mode
+    const ffa = m.id === 'ffa'
+    const layout = ffa ? 'ffa' : `${m.id}|${g.player.team}`
+    if (layout !== this.scoreLayout) {
+      this.scoreLayout = layout
+      this.lastScore = [-1, -1]
+      setClass(this.scoreEl, 'ffa', ffa)
+      if (!ffa) {
+        const mine = g.player.team
+        this.emFriend.innerHTML = emblemSvg(mine)
+        this.emEnemy.innerHTML = emblemSvg(mine === 'tf141' ? 'opfor' : 'tf141')
+      }
+    }
+    const limit = Math.max(1, g.match.scoreLimit)
+    let a: number
+    let b: number
+    if (ffa) {
+      // MW2 FFA: your score against the leader (or the runner-up when you lead).
+      const standings = ffaStandings(g)
+      const pos = standings.indexOf(g.player)
+      const rival = pos === 0 ? standings[1] : standings[0]
+      a = g.player.stats.kills
+      b = rival ? rival.stats.kills : 0
+      const rivalPlace = rival ? standings.indexOf(rival) + 1 : 2
+      const tag = `${pos + 1}|${rivalPlace}`
+      if (this.emFriend.dataset.tag !== tag) {
+        this.emFriend.dataset.tag = tag
+        this.emFriend.textContent = ordinal(pos + 1)
+        this.emEnemy.textContent = ordinal(rivalPlace)
+      }
+      const tied = rival && rival.stats.kills === a && a > 0
+      this.place.set(pos === 0 ? (tied ? 'TIED 1ST' : '1ST PLACE') : `${ordinal(pos + 1).toUpperCase()} PLACE`)
+    } else {
+      const mine = g.player.team
+      const theirs: Team = mine === 'tf141' ? 'opfor' : 'tf141'
+      a = m.score[mine]
+      b = m.score[theirs]
+      this.place.set('')
+    }
     if (a !== this.lastScore[0]) {
       this.lastScore[0] = a
       this.scoreFriend.set(String(a))
-      this.barFriend.style.transform = `scaleX(${Math.min(1, a / CONFIG.scoreLimit)})`
+      this.barFriend.style.transform = `scaleX(${Math.min(1, a / limit)})`
     }
     if (b !== this.lastScore[1]) {
       this.lastScore[1] = b
       this.scoreEnemy.set(String(b))
-      this.barEnemy.style.transform = `scaleX(${Math.min(1, b / CONFIG.scoreLimit)})`
+      this.barEnemy.style.transform = `scaleX(${Math.min(1, b / limit)})`
     }
     this.timer.set(fmtTime(m.timeLeft))
     setClass(this.timerEl, 'low', m.timeLeft <= 30 && m.phase === 'playing')
@@ -582,9 +642,9 @@ export class Hud {
       const a = this.annQueue.shift()!
       this.annT.set(a.text)
       this.annS.set(a.sub ?? '')
-      this.announce.classList.remove('friend', 'enemy')
-      this.announce.classList.add(a.cls)
-      retrigger(this.announce, 'on')
+      this.announceEl.classList.remove('friend', 'enemy')
+      this.announceEl.classList.add(a.cls)
+      retrigger(this.announceEl, 'on')
       this.annUntil = now + (a.sub ? 3.4 : 2.4)
     }
     if (this.ssUntil && now > this.ssUntil) {
@@ -696,6 +756,16 @@ export class Hud {
       }
     }
     if (!dead) return
+    if (g.mode.id === 'sd') {
+      // One life per round: spectate a living teammate until the next round.
+      const mate = g.actors.find((a) => a.alive && !a.isPlayer && !g.mode.isEnemy(p, a))
+      this.dResp.set(mate ? `SPECTATING ${mate.name.toUpperCase()}` : 'NO TEAMMATES ALIVE')
+      this.dRespSub.set('WAITING FOR NEXT ROUND')
+      setClass(this.death, 'ready', false)
+      setClass(this.death, 'spectate', true)
+      return
+    }
+    setClass(this.death, 'spectate', false)
     const left = g.mode.respawnIn(p)
     const canSkip = left > 0 && left < CONFIG.respawnDelay - 1.6
     this.dResp.set(left > 0 ? `RESPAWN IN ${Math.ceil(left)}` : 'RESPAWNING')

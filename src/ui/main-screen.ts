@@ -1,3 +1,4 @@
+import { defaultMatch } from '../core/game'
 import { levelForXp, loadXp, rankName, xpForLevel, RANK_NAMES } from './data'
 import { el } from './dom'
 import { emblemSvg, rankSvg, WORDMARK } from './icons'
@@ -30,12 +31,20 @@ export class MainScreen implements Screen {
     this.list = new MenuList(
       ctx,
       [
-        { label: 'PLAY TEAM DEATHMATCH', sub: '6 v 6', action: () => ctx.play() },
+        {
+          label: 'PLAY ONLINE',
+          sub: 'FIND / HOST',
+          action: () => ctx.push('browser'),
+          disabled: () => !ctx.game.lobby.onlineAvailable,
+          tip: 'Online play is not configured on this build (no Supabase keys). Use Private Match to play against bots.',
+        },
+        { label: 'PRIVATE MATCH', sub: 'CUSTOM GAME VS BOTS', action: () => this.privateMatch() },
+        { label: 'QUICK PLAY', sub: 'TEAM DEATHMATCH 6v6', action: () => ctx.play() },
         { label: 'CREATE A CLASS', action: () => ctx.push('class') },
         { label: 'OPTIONS', action: () => ctx.push('options') },
         { label: 'CONTROLS', action: () => ctx.push('controls') },
       ],
-      74,
+      70,
     )
     left.appendChild(this.list.el)
 
@@ -92,10 +101,24 @@ export class MainScreen implements Screen {
     this.cardXp.style.transform = `scaleX(${Math.max(0.02, Math.min(1, p))})`
     this.cardXpText.textContent = `${Math.floor(xp).toLocaleString()} / ${next.toLocaleString()} XP`
     this.drawPreview()
+    this.list.refresh()
     this.list.setIndex(this.list.idx, false)
   }
 
   leave() {}
+
+  private busy = false
+
+  private privateMatch() {
+    if (this.busy) return
+    const g = this.ctx.game
+    this.busy = true
+    g.lobby
+      .host({ ...defaultMatch(g.match.mode), botDifficulty: g.match.botDifficulty }, false)
+      .then(() => this.ctx.push('lobby'))
+      .catch((err: unknown) => this.ctx.popup('UNABLE TO CREATE GAME', err instanceof Error ? err.message : String(err)))
+      .finally(() => (this.busy = false))
+  }
 
   private drawPreview() {
     const c = this.preview

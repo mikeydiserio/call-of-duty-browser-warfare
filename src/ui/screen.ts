@@ -2,7 +2,7 @@ import type { UiSound } from '../audio/audio'
 import type { Game } from '../core/game'
 import { el, setClass } from './dom'
 
-export type ScreenId = 'main' | 'class' | 'options' | 'controls' | 'pause'
+export type ScreenId = 'main' | 'class' | 'options' | 'controls' | 'pause' | 'browser' | 'lobby'
 
 /** Services the coordinator offers to every screen. */
 export interface UiCtx {
@@ -10,8 +10,13 @@ export interface UiCtx {
   sfx(kind: UiSound): void
   push(id: ScreenId): void
   pop(): void
-  /** Start a match (called inside a click/keydown handler: pointer lock needs the gesture). */
-  play(): void
+  /**
+   * Start a match (called inside a click/keydown handler: pointer lock needs the gesture).
+   * `start` overrides how the match is kicked off (e.g. `lobby.startMatch()`); default is a quick TDM.
+   */
+  play(start?: () => void): void
+  /** MW2-style modal message box. */
+  popup(title: string, message: string): void
   resume(): void
   quit(): void
   /** True when the screen is reached from the in-game pause menu. */
@@ -31,6 +36,10 @@ export interface MenuItem {
   label: string
   sub?: string
   action: () => void
+  /** Greyed out and skipped by keyboard navigation while true. */
+  disabled?: () => boolean
+  /** Hover tooltip (shown for disabled items to explain why). */
+  tip?: string
 }
 
 /**
@@ -56,13 +65,49 @@ export class MenuList {
       const b = el('button', 'mi', this.el)
       b.type = 'button'
       b.style.top = `${i * rowH}px`
-      el('span', 'mi-label', b, it.label)
-      if (it.sub) el('span', 'mi-sub', b, it.sub)
-      b.addEventListener('mouseenter', () => this.setIndex(i))
+      const label = el('span', 'mi-label', b, it.label)
+      const sub = el('span', 'mi-sub', b, it.sub ?? '')
+      if (it.tip) b.dataset.tip = it.tip
+      b.addEventListener('mouseenter', () => {
+        if (!this.isDisabled(i)) this.setIndex(i)
+      })
       b.addEventListener('click', () => this.activate(i))
       this.rows.push(b)
+      this.labels.push(label)
+      this.subs.push(sub)
     })
     this.setIndex(0, false)
+  }
+
+  private labels: HTMLElement[] = []
+  private subs: HTMLElement[] = []
+
+  isDisabled(i: number): boolean {
+    return !!this.items[i]?.disabled?.()
+  }
+
+  setLabel(i: number, label: string, sub?: string) {
+    const l = this.labels[i]
+    if (l && l.textContent !== label) l.textContent = label
+    const s = this.subs[i]
+    if (s && sub !== undefined && s.textContent !== sub) s.textContent = sub
+  }
+
+  /** Re-evaluate disabled states (call when whatever they depend on changes). */
+  refresh() {
+    this.rows.forEach((r, i) => setClass(r, 'off', this.isDisabled(i)))
+    if (this.isDisabled(this.idx)) this.step(1, false)
+  }
+
+  private step(dir: number, sound = true) {
+    const n = this.items.length
+    for (let k = 1; k <= n; k++) {
+      const j = (((this.idx + dir * k) % n) + n) % n
+      if (!this.isDisabled(j)) {
+        this.setIndex(j, sound)
+        return
+      }
+    }
   }
 
   setIndex(i: number, sound = true) {
@@ -79,18 +124,25 @@ export class MenuList {
 
   private paint() {
     this.hl.style.transform = `translateY(${this.idx * this.rowH}px)`
-    this.rows.forEach((r, i) => setClass(r, 'sel', i === this.idx))
+    this.rows.forEach((r, i) => {
+      setClass(r, 'sel', i === this.idx)
+      setClass(r, 'off', this.isDisabled(i))
+    })
   }
 
   activate(i = this.idx) {
+    if (this.isDisabled(i)) {
+      this.ctx.sfx('back')
+      return
+    }
     this.ctx.sfx('select')
     this.items[i]?.action()
   }
 
   /** Returns true when the key was consumed. */
   key(e: KeyboardEvent): boolean {
-    if (e.code === 'ArrowDown' || e.code === 'KeyS') this.setIndex(this.idx + 1)
-    else if (e.code === 'ArrowUp' || e.code === 'KeyW') this.setIndex(this.idx - 1)
+    if (e.code === 'ArrowDown' || e.code === 'KeyS') this.step(1)
+    else if (e.code === 'ArrowUp' || e.code === 'KeyW') this.step(-1)
     else if (e.code === 'Enter' || e.code === 'Space') this.activate()
     else return false
     return true
