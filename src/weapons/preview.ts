@@ -25,6 +25,8 @@ import { IBL_BOOST, initViewmodelMaterials, makeStudioEnvironment } from './mate
 import { getViewRig } from './rigs'
 
 const FOV = 24
+/** Muzzle to the right, turned ~25° toward the viewer. */
+const HERO_YAW = -Math.PI / 2 + 0.45
 const _box = new Box3()
 const _size = new Vector3()
 const _center = new Vector3()
@@ -137,7 +139,7 @@ export function weaponThumbnail(id: WeaponId, w = 240, h = 96): string {
   st.shadow.visible = false
   st.renderer.setPixelRatio(1)
   st.renderer.setSize(w * 2, h * 2, false)
-  frame(st.camera, m, w / h, 1.08)
+  frame(st.camera, m, w / h, 1.06, 1.06)
   const boost = IBL_BOOST.value
   IBL_BOOST.value = 1
   st.renderer.render(st.scene, st.camera)
@@ -154,13 +156,16 @@ export function weaponThumbnail(id: WeaponId, w = 240, h = 96): string {
   return url
 }
 
-/** Fit the camera so the model fills the frame (side view of a long gun is the limiting case). */
-function frame(cam: PerspectiveCamera, m: Model, aspect: number, margin: number) {
+/**
+ * Fit the camera so the model fills the frame: its length spans 1/margin of
+ * the width, unless that would make it taller than 1/vMargin of the height
+ * (pistols) — so every weapon reads at the same visual size.
+ */
+function frame(cam: PerspectiveCamera, m: Model, aspect: number, margin: number, vMargin = 1.12) {
   cam.aspect = aspect
   const vt = Math.tan((FOV * Math.PI) / 360)
   const ht = vt * aspect
-  // length across the width, but never taller than the frame (pistols / end-on views)
-  const dist = Math.max((m.radius * margin) / ht, (m.height * 0.5 * 1.15) / vt) + m.radius * 0.35
+  const dist = Math.max((m.radius * margin) / ht, (m.height * 0.5 * vMargin) / vt)
   cam.position.set(0, m.radius * 0.18, dist)
   cam.lookAt(0, 0, 0)
   cam.near = dist * 0.05
@@ -174,9 +179,10 @@ export class WeaponPreview {
   private host: HTMLElement | null = null
   private visible = false
   private model: Model | null = null
-  private yaw = -Math.PI / 2 + 0.35
-  private yawVel = 0.32
-  private pitch = 0.06
+  private yaw = HERO_YAW
+  private yawVel = 0
+  private idle = 10
+  private pitch = 0.1
   private dragging = false
   private lastX = 0
   private lastY = 0
@@ -211,8 +217,9 @@ export class WeaponPreview {
     this.model = getModel(id)
     st.scene.add(this.model.pivot)
     this.spinIn = 0
-    this.yaw -= 1.6 // whip in from behind
-    this.yawVel = Math.max(this.yawVel, 0.32)
+    this.yaw = HERO_YAW - 1.6 // whip in from behind, settle on the hero angle
+    this.yawVel = 0
+    this.idle = 1.5
     if (this.host && active === this) {
       const c = st.renderer.domElement
       c.style.transition = 'none'
@@ -297,6 +304,7 @@ export class WeaponPreview {
     this.lastY = e.clientY
     this.yaw += dx * 0.012
     this.yawVel = dx * 0.6
+    this.idle = 0
     this.pitch = Math.max(-0.5, Math.min(0.6, this.pitch + dy * 0.006))
   }
 
@@ -312,11 +320,18 @@ export class WeaponPreview {
     if (!this.visible || !this.model || !this.host || this.w < 40) return
     this.time += dt
     const st = getStage()
-    // inertia back to a slow turntable
+    // drag inertia, then ease back to a gently swaying 3/4 hero angle
     if (!this.dragging && !this.debugAngle) {
-      this.yawVel += (0.32 - this.yawVel) * Math.min(1, dt * 1.6)
+      this.yawVel *= Math.exp(-dt * 2.5)
       this.yaw += this.yawVel * dt
-      this.pitch += (0.06 - this.pitch) * Math.min(1, dt * 0.8)
+      this.idle += dt
+      if (this.idle > 1.5) {
+        const target = HERO_YAW + Math.sin(this.time * 0.32) * 0.42
+        let d = target - this.yaw
+        d = Math.atan2(Math.sin(d), Math.cos(d))
+        this.yaw += d * Math.min(1, dt * 1.2)
+      }
+      this.pitch += (0.1 - this.pitch) * Math.min(1, dt * 0.8)
     }
     this.yaw %= Math.PI * 2
     if (this.debugAngle) {
@@ -334,7 +349,7 @@ export class WeaponPreview {
     p.scale.setScalar(0.88 + 0.12 * e)
     st.shadow.position.y = -this.model.height * 0.5 - this.model.radius * 0.18
     st.shadow.scale.set(this.model.radius * 2.4, 1, this.model.radius * 1.1)
-    frame(st.camera, this.model, this.w / this.h, 1.04 * this.debugZoom)
+    frame(st.camera, this.model, this.w / this.h, 1.2 * this.debugZoom, 1.35 * this.debugZoom)
     const boost = IBL_BOOST.value
     IBL_BOOST.value = 1
     st.renderer.render(st.scene, st.camera)

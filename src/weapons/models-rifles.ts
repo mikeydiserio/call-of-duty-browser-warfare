@@ -200,7 +200,7 @@ export function buildACR(): ModelSpec {
   b.add('body', 'dot', new SphereDot(0, SY, -0.112))
   // ── Magazine (polymer PMAG-style)
   const magC = (t: number): [number, number] => [0.1 + 0.026 * t * t, 0.0 - 0.17 * t]
-  b.add('mag', 'poly', prof(strip(magC, (t) => 0.062 - 0.002 * t, 12), 0.0235, { r: 0.003, bevel: 0.001 }))
+  b.add('mag', 'poly', prof(strip(magC, (t) => 0.062 - 0.004 * t, 12), 0.0235, { r: 0.003, round: 0.0042 }))
   for (let i = 0; i < 4; i++) {
     const [f, y] = magC(0.42 + i * 0.07)
     b.add('mag', 'poly', rbox(f - 0.03, f + 0.03, y - 0.0016, y + 0.0016, 0.0248, 0, 0.0012, 0.0005))
@@ -220,7 +220,7 @@ export function buildACR(): ModelSpec {
     relief: 0.3,
     hipPos: [0.12, -0.205, -0.43],
     hipRot: [0.02, 0.1, 0.06],
-    rh: { p: [0.027, -0.045, 0.058], r: [-0.2, 0, -1.5708], grip: [0.5, 0.45, 0.85, 0.86, 0.84] },
+    rh: { p: [0.027, -0.045, 0.058], r: [-0.2, 0, -1.5708], grip: [0.78, 0.45, 0.86, 0.88, 0.86] },
     lh: { p: [-0.012, 0.008, -0.33], r: [0.0, -1.2, 3.14], grip: [0.45, 0.72, 0.78, 0.8, 0.8] },
     magWell: [0, -0.02, -0.1],
     magDir: [0, -1, -0.17],
@@ -410,7 +410,7 @@ export function buildM4A1(): ModelSpec {
   b.add('body', 'steel', pin('x', 0.004, 0.005, 0.0145, 0.116, -0.056, 12))
   // ── STANAG magazine (ribbed aluminium, curved)
   const magC = (t: number): [number, number] => [0.098 + 0.026 * t * t, -0.004 - 0.165 * t]
-  b.add('mag', 'metal', prof(strip(magC, (t) => 0.061 - 0.002 * t, 12), 0.0235, { r: 0.002, bevel: 0.0008 }))
+  b.add('mag', 'metal', prof(strip(magC, (t) => 0.061 - 0.003 * t, 12), 0.0235, { r: 0.002, round: 0.0028 }))
   for (let i = 0; i < 2; i++) {
     const y = -0.07 - i * 0.045
     b.add('mag', 'void', box(0.078 + i * 0.006, 0.124 + i * 0.008, y, y + 0.0016, 0.0115, 0.0122))
@@ -432,7 +432,7 @@ export function buildM4A1(): ModelSpec {
     relief: 0.25,
     hipPos: [0.12, -0.205, -0.43],
     hipRot: [0.02, 0.1, 0.06],
-    rh: { p: [0.027, -0.045, 0.06], r: [-0.2, 0, -1.5708], grip: [0.5, 0.45, 0.85, 0.86, 0.84] },
+    rh: { p: [0.027, -0.045, 0.06], r: [-0.2, 0, -1.5708], grip: [0.78, 0.45, 0.86, 0.88, 0.86] },
     lh: { p: [-0.012, 0.012, -0.3], r: [0.0, -1.2, 3.14], grip: [0.45, 0.72, 0.78, 0.8, 0.8] },
     magWell: [0, -0.02, -0.098],
     magDir: [0, -1, -0.17],
@@ -524,7 +524,7 @@ export function buildAK47(): ModelSpec {
   b.add('body', 'blued', rbox(0.2, 0.206, 0.104, SY + 0.004, 0.006, 0.0055, 0.0008, 0.0003))
   // ── 30-round steel magazine: strong curve, ribs, floorplate
   const magC = (t: number): [number, number] => [0.08 + 0.13 * Math.pow(t, 1.7), 0.0 - 0.215 * t + 0.03 * t * t]
-  b.add('mag', 'blued', prof(strip(magC, (t) => 0.066 - 0.004 * t, 14), 0.0262, { r: 0.002, bevel: 0.001 }))
+  b.add('mag', 'blued', prof(strip(magC, (t) => 0.066 - 0.006 * t, 14), 0.0262, { r: 0.002, round: 0.003 }))
   for (const k of [0.3, 0.55, 0.78]) {
     const [f, y] = magC(k)
     b.add('mag', 'blued', rbox(f - 0.024, f + 0.024, y - 0.003, y + 0.003, 0.0274, 0, 0.002, 0.0008).rotateZ(0))
@@ -577,10 +577,20 @@ export function buildUMP45(): ModelSpec {
   b.add('body', 'poly', xsec(recSec, -0.168, 0.222, 0.002, 0.003))
   rail1913(b, 'body', 'metal', -0.09, 0.12, 0.1035, 0, 0.0212)
   b.add('body', 'void', box(0.0, 0.088, 0.054, 0.08, 0.0224, 0.0231)) // ejection port (right)
-  // receiver panel lines / molded ribs
+  // moulded longitudinal ribs + rear reinforcement ridges (glass-filled polymer shell)
+  for (const s of [1, -1]) {
+    b.add('body', 'poly', prof([[-0.155, 0.046], [0.205, 0.046], [0.21, 0.05], [-0.15, 0.05]], 0.0028, { x: s * 0.0232, r: 0.0012, bevel: 0.0006 }))
+    b.add('body', 'poly', prof([[-0.155, 0.069], [-0.01, 0.069], [-0.006, 0.073], [-0.15, 0.073]], 0.0028, { x: s * 0.0232, r: 0.0012, bevel: 0.0006 }))
+    for (let i = 0; i < 4; i++) {
+      const f = -0.15 + i * 0.016
+      b.add('body', 'poly', prof([[f, 0.05], [f + 0.006, 0.05], [f + 0.006, 0.069], [f, 0.069]], 0.0024, { x: s * 0.0232, r: 0.001, bevel: 0.0005 }))
+    }
+  }
   b.add('body', 'void', box(-0.16, 0.215, 0.0405, 0.0412, 0.0225, 0.0231))
   b.add('body', 'void', box(-0.16, 0.215, 0.0405, 0.0412, -0.0231, -0.0225))
   for (let i = 0; i < 3; i++) crossPin(b, 'body', 'steel', 0.0228, 0.044, -0.14 + i * 0.13, 0.0026)
+  // tapered nose of the fore-end
+  b.add('body', 'poly', prof([[0.336, 0.03], [0.348, 0.04, 0.004], [0.35, 0.084, 0.004], [0.336, 0.094]], 0.036, { r: 0.003, bevel: 0.002 }))
   // ── Fore-end with side/bottom rails and vents
   const feSec = halfSec([
     [0.016, 0.03],
@@ -650,17 +660,21 @@ export function buildUMP45(): ModelSpec {
   // ── Side-folding stock (extended)
   b.add('body', 'poly', prof([[-0.168, 0.094], [-0.186, 0.094], [-0.186, 0.032], [-0.168, 0.032]], 0.04, { r: 0.004, bevel: 0.0014 }))
   b.add('body', 'blued', pin('y', 0.0045, 0.07, 0.0215, 0.063, -0.176, 12))
-  b.add('body', 'poly', prof([[-0.186, 0.09], [-0.33, 0.094, 0.006], [-0.338, 0.084, 0.004], [-0.338, -0.02, 0.006], [-0.326, -0.028, 0.006], [-0.31, -0.02, 0.006], [-0.31, 0.072, 0.006], [-0.2, 0.068, 0.006], [-0.186, 0.05, 0.006]], 0.026, { r: 0.004, bevel: 0.002 }))
-  b.add('body', 'poly', prof([[-0.2, 0.055], [-0.31, 0.06], [-0.31, 0.044], [-0.2, 0.04]], 0.018, { r: 0.004, bevel: 0.0014 })) // lower strut
+  b.add('body', 'poly', prof([[-0.186, 0.09], [-0.33, 0.094, 0.006], [-0.338, 0.084, 0.004], [-0.338, -0.02, 0.006], [-0.326, -0.028, 0.006], [-0.31, -0.02, 0.006], [-0.31, 0.072, 0.006], [-0.2, 0.068, 0.006], [-0.186, 0.05, 0.006]], 0.026, { r: 0.004, round: 0.006 }))
+  b.add('body', 'poly', prof([[-0.2, 0.055], [-0.31, 0.06], [-0.31, 0.044], [-0.2, 0.04]], 0.018, { r: 0.004, round: 0.005 })) // lower strut
   b.add('body', 'rubber', prof([[-0.336, 0.094], [-0.35, 0.09], [-0.352, -0.024], [-0.338, -0.03]], 0.042, { r: 0.004, bevel: 0.002 }))
   // ── Straight 25-round magazine (polymer, ribbed sides)
-  b.add('mag', 'poly', prof([[0.056, 0.026], [0.124, 0.026], [0.128, -0.17, 0.004], [0.06, -0.17, 0.004]], 0.0248, { r: 0.003, bevel: 0.0012 }))
+  // slight forward cant, taper toward the floorplate, rounded edges
+  const umpMag = (t: number): [number, number] => [0.09 + 0.014 * t, 0.026 - 0.194 * t]
+  b.add('mag', 'poly', prof(strip(umpMag, (t) => 0.066 - 0.006 * t, 10), 0.0248, { r: 0.003, round: 0.0045 }))
   for (let i = 0; i < 6; i++) {
-    const y = -0.06 - i * 0.017
-    b.add('mag', 'poly', rbox(0.064, 0.118, y, y + 0.006, 0.0262, 0, 0.002, 0.0008))
+    const [f, y] = umpMag(0.42 + i * 0.085)
+    b.add('mag', 'poly', prof([[f - 0.027, y], [f + 0.027, y], [f + 0.027, y + 0.0055], [f - 0.027, y + 0.0055]], 0.0262, { r: 0.002, round: 0.002 }))
   }
-  b.add('mag', 'poly', prof([[0.052, -0.168], [0.132, -0.168], [0.134, -0.18, 0.003], [0.052, -0.18, 0.003]], 0.03, { r: 0.002, bevel: 0.0008 }))
-  b.add('mag', 'brass', prof([[0.066, 0.026], [0.098, 0.026], [0.096, 0.034, 0.004], [0.068, 0.034, 0.004]], 0.012, { r: 0.003, bevel: 0.001 })) // top round
+  b.add('mag', 'poly', prof([[0.064, -0.166], [0.136, -0.166], [0.138, -0.18, 0.004], [0.066, -0.182, 0.004]], 0.03, { r: 0.003, round: 0.004 }))
+  b.add('mag', 'blued', prof([[0.064, 0.024], [0.112, 0.024], [0.11, 0.03, 0.002], [0.07, 0.03, 0.002]], 0.004, { x: 0.009, r: 0.0015, bevel: 0.0004 })) // feed lips
+  b.add('mag', 'blued', prof([[0.064, 0.024], [0.112, 0.024], [0.11, 0.03, 0.002], [0.07, 0.03, 0.002]], 0.004, { x: -0.009, r: 0.0015, bevel: 0.0004 }))
+  b.add('mag', 'brass', lathe([[0.0, 0.07], [0.0058, 0.07], [0.0058, 0.092], [0.0045, 0.098], [0.0, 0.098]], 0, 0.031, 14)) // top round
   // ── Cocking handle (left)
   b.add('charge', 'blued', rbox(0.27, 0.284, 0.078, 0.094, 0.01, -0.018, 0.002, 0.0006))
   b.add('charge', 'poly', prof([[0.266, 0.074], [0.288, 0.076, 0.004], [0.288, 0.096, 0.004], [0.266, 0.096]], 0.012, { x: -0.028, r: 0.004, bevel: 0.0012 }))
@@ -675,7 +689,7 @@ export function buildUMP45(): ModelSpec {
     relief: 0.22,
     hipPos: [0.12, -0.205, -0.43],
     hipRot: [0.02, 0.1, 0.06],
-    rh: { p: [0.032, -0.045, 0.062], r: [-0.2, 0, -1.5708], grip: [0.5, 0.45, 0.85, 0.86, 0.84] },
+    rh: { p: [0.032, -0.045, 0.062], r: [-0.2, 0, -1.5708], grip: [0.78, 0.45, 0.86, 0.88, 0.86] },
     lh: { p: [-0.012, 0.004, -0.29], r: [0.0, -1.2, 3.14], grip: [0.45, 0.72, 0.78, 0.8, 0.8] },
     magWell: [0, -0.02, -0.09],
     magDir: [0, -1, -0.02],

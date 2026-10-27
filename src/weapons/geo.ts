@@ -64,11 +64,18 @@ export interface ProfOpts {
   r?: number
   crease?: number
   holes?: P[][]
+  /** Explicit rounded-edge radius (smooth multi-segment bevel). */
+  round?: number
 }
 
 /** Extrude a side profile to a given width (X). */
 export function prof(pts: P[], width: number, o: ProfOpts = {}): BufferGeometry {
-  const bevel = Math.min(o.bevel ?? 0.0012, width * 0.35)
+  let bevel = Math.min(o.bevel ?? 0.0012, width * 0.35)
+  // Moulded / hand-contact parts (grips, stocks, mags, handguards ask for a
+  // real bevel): round the cross-section so they don't read as flat slabs.
+  const soft = bevel >= 0.0025 || o.round !== undefined
+  if (o.round !== undefined) bevel = Math.min(width * 0.4, o.round)
+  else if (soft) bevel = Math.min(width * 0.3, Math.max(bevel, 0.006))
   const shape = roundedPath(new Shape(), pts, o.r ?? 0.004)
   if (o.holes) for (const h of o.holes) shape.holes.push(roundedPath(new Path(), h, o.r ?? 0.004))
   const depth = Math.max(0.0005, width - bevel * 2)
@@ -78,8 +85,8 @@ export function prof(pts: P[], width: number, o: ProfOpts = {}): BufferGeometry 
     bevelThickness: bevel,
     bevelSize: bevel,
     bevelOffset: -bevel,
-    bevelSegments: 2,
-    curveSegments: 5,
+    bevelSegments: soft ? 5 : 3,
+    curveSegments: soft ? 8 : 6,
   })
   geo.translate(0, 0, -depth / 2)
   geo.rotateY(Math.PI / 2)
@@ -425,8 +432,8 @@ export function xsec(pts: [number, number][], f0: number, f1: number, bevel = 0.
     bevelThickness: bv,
     bevelSize: bv,
     bevelOffset: -bv,
-    bevelSegments: 1,
-    curveSegments: 3,
+    bevelSegments: bv >= 0.0012 ? 3 : 1,
+    curveSegments: r >= 0.0025 ? 6 : 3,
   })
   // extrude runs +Z (0..depth); map to z = -f1+bv .. -f0-bv
   g.translate(0, 0, -f1 + bv)

@@ -8,7 +8,8 @@
  *
  * Forearm frame: wrist at origin, elbow along +Z.
  */
-import { BufferGeometry, CapsuleGeometry, CircleGeometry, Group, Mesh, MeshStandardMaterial, Object3D, SphereGeometry, Vector3 } from 'three'
+import { BufferGeometry, CapsuleGeometry, CircleGeometry, CylinderGeometry, Group, Mesh, MeshStandardMaterial, Object3D, SphereGeometry, TorusGeometry, Vector3 } from 'three'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { boxUV, flat, lathe, prof, rbox } from './geo'
 import { mat, type MatKey } from './materials'
 import { makeWatchFace } from './textures'
@@ -46,6 +47,33 @@ function segment(len: number, r0: number, r1: number): BufferGeometry {
     g.rotateX(-Math.PI / 2) // +Y -> -Z
     g.translate(0, 0, -len / 2 + (r0 + r1) / 4)
     g.computeVertexNormals()
+    boxUV(g, 6)
+    return g
+  })
+}
+
+/** Thin ring around a finger at its joint (z = 0): the glove's knuckle crease. */
+function crease(r: number): BufferGeometry {
+  return cached(`cr${r.toFixed(5)}`, () => {
+    const g = new TorusGeometry(r, 0.0006, 5, 18)
+    g.scale(1, 0.88, 1)
+    g.translate(0, 0, -0.0015)
+    boxUV(g, 6)
+    return g
+  })
+}
+
+/** Stitched side seams running the length of a finger segment (both sides). */
+function seam(len: number, r0: number, r1: number): BufferGeometry {
+  return cached(`sm${len}_${r0}_${r1}`, () => {
+    const parts: BufferGeometry[] = []
+    for (const s of [1, -1]) {
+      const g = new CylinderGeometry(0.00045, 0.00045, len * 0.82, 4, 1)
+      g.rotateX(Math.PI / 2)
+      g.translate(s * (r0 + r1) * 0.5 * 0.99, 0, -len * 0.5)
+      parts.push(g.toNonIndexed())
+    }
+    const g = mergeGeometries(parts)!
     boxUV(g, 6)
     return g
   })
@@ -145,6 +173,9 @@ export class Hand {
         const r0 = f.r * (1.08 - j * 0.09)
         const r1 = f.r * (1.08 - (j + 1) * 0.09)
         jg.add(meshOf(segment(f.len[j]!, r0, r1), glove))
+        // knuckle crease at the joint + side seams along the segment (stitched glove)
+        if (j > 0) jg.add(meshOf(crease(r0 * 0.98), 'rubber'))
+        jg.add(meshOf(seam(f.len[j]!, r0, r1), 'rubber'))
         parent.add(jg)
         parent = jg
         chain.push(jg)
@@ -163,10 +194,13 @@ export class Hand {
     const t1 = new Group()
     t1.position.set(0, 0, -0.04)
     t1.add(meshOf(segment(0.032, 0.0108, 0.0102), glove))
+    t1.add(meshOf(crease(0.0106), 'rubber'))
+    t1.add(meshOf(seam(0.032, 0.0108, 0.0102), 'rubber'))
     t0.add(t1)
     const t2 = new Group()
     t2.position.set(0, 0, -0.032)
     t2.add(meshOf(segment(0.026, 0.0102, 0.0094), glove))
+    t2.add(meshOf(crease(0.01), 'rubber'))
     t1.add(t2)
     thumb.push(t0, t1, t2)
     this.joints.push(thumb)
