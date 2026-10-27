@@ -75,8 +75,8 @@ function std(set: PBRSet | null, o: { color?: number; metalness: number; rough?:
     metalness: o.metalness,
     roughness: o.rough ?? 1,
     envMapIntensity: o.envI ?? 1,
-    side: o.side ? DoubleSide : undefined,
   })
+  if (o.side) m.side = DoubleSide
   if (set) {
     m.map = set.map
     m.roughnessMap = set.rough
