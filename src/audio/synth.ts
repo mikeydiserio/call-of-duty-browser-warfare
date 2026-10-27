@@ -28,6 +28,7 @@ import {
   sweepNoise,
   tone,
   TWO_PI,
+  fsin,
 } from './dsp'
 
 export type Rendered = Float32Array | [Float32Array, Float32Array]
@@ -450,9 +451,9 @@ function impact(kind: ImpactKind, rng: Rng): Float32Array {
         let ph = 0
         for (let i = 0; i < n; i++) {
           const u = i / n
-          const f = 1100 + 2900 * Math.exp(-u * 3.4) + 40 * Math.sin(u * 90)
+          const f = 1100 + 2900 * Math.exp(-u * 3.4) + 40 * fsin(u * 90)
           ph += (TWO_PI * f) / SR
-          d[samples(0.02) + i]! += Math.sin(ph) * Math.pow(1 - u, 2.2) * 0.3 * Math.min(1, i / 60)
+          d[samples(0.02) + i]! += fsin(ph) * Math.pow(1 - u, 2.2) * 0.3 * Math.min(1, i / 60)
         }
         sweepNoise(d, 0.02, 0.4, 0.18, rng, 5200, 1300, 3, riseFall(0.1))
       }
@@ -736,14 +737,14 @@ function windLoop(seed: number): [Float32Array, Float32Array] {
     for (let i = 0; i < raw.length; i++) {
       const t = i / N
       const n = rng.signed()
-      const gust = 0.5 + 0.5 * Math.sin(TWO_PI * (2 * t + 0.13 * ch)) * 0.6 + 0.5 * 0.4 * Math.sin(TWO_PI * (5 * t + 0.4))
+      const gust = 0.5 + 0.5 * fsin(TWO_PI * (2 * t + 0.13 * ch)) * 0.6 + 0.5 * 0.4 * fsin(TWO_PI * (5 * t + 0.4))
       if ((i & 63) === 0) {
         mid.lowpass(500 + 700 * gust)
         low.lowpass(220 + 220 * gust)
       }
       const body = mid.process(n) * (0.35 + 0.65 * gust) * 1.8
       const rumble = low.process(n) * 3.2 * (0.5 + 0.5 * gust)
-      const wh = whistle.process(n) * 7 * Math.pow(Math.max(0, gust - 0.35), 2) * (0.6 + 0.4 * Math.sin(TWO_PI * 3 * t))
+      const wh = whistle.process(n) * 7 * Math.pow(Math.max(0, gust - 0.35), 2) * (0.6 + 0.4 * fsin(TWO_PI * 3 * t))
       raw[i] = body + rumble + wh + warm.process(n) * 2.5
     }
     chans.push(makeLoop(raw, N))
@@ -766,12 +767,12 @@ function creak(rng: Rng): Float32Array {
     ph += f / SR
     const sawv = 2 * (ph - Math.floor(ph)) - 1
     if ((i & 31) === 0) {
-      bandA.bandpass(550 + 700 * u + 120 * Math.sin(u * 40), 9)
-      bandB.bandpass(1300 + 900 * Math.sin(u * 11), 7)
+      bandA.bandpass(550 + 700 * u + 120 * fsin(u * 40), 9)
+      bandB.bandpass(1300 + 900 * fsin(u * 11), 7)
     }
-    const stick = Math.max(0, Math.sin(u * 60 + rng.next() * 0.2))
+    const stick = Math.max(0, fsin(u * 60 + rng.next() * 0.2))
     const x = sawv * 0.7 + rng.signed() * 0.4
-    d[i] = (bandA.process(x) * 1.6 + bandB.process(x) * 1.0) * Math.pow(Math.sin(Math.PI * u), 1.3) * (0.4 + 0.6 * stick)
+    d[i] = (bandA.process(x) * 1.6 + bandB.process(x) * 1.0) * Math.pow(fsin(Math.PI * u), 1.3) * (0.4 + 0.6 * stick)
   }
   return finalize(d, 0.6, 60)
 }

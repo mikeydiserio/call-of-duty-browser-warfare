@@ -21,6 +21,7 @@ import {
   sweepNoise,
   tone,
   TWO_PI,
+  fsin,
   riseFall,
 } from './dsp'
 import type { Job, Rendered } from './synth'
@@ -69,7 +70,7 @@ function synthPad(o: PadOpts, rng: Rng): [Float32Array, Float32Array] {
       let a = Math.min(1, t / o.attack)
       a = a * a * (3 - 2 * a)
       const r = t > o.dur ? Math.max(0, 1 - (t - o.dur) / o.release) : 1
-      const vib = vibInc ? 1 + (o.vibrato ?? 0) * Math.sin(TWO_PI * vp) : 1
+      const vib = vibInc ? 1 + (o.vibrato ?? 0) * fsin(TWO_PI * vp) : 1
       vp += vibInc
       let s = 0
       for (let k = 0; k < inc.length; k++) {
@@ -154,11 +155,47 @@ function pluck(f: number, level: number, rng: Rng): Float32Array {
 
 const MENU_LEN = 40
 
-function menuLoop(rng: Rng): [Float32Array, Float32Array] {
+/** Number of menu stems; each renders on its own worker and they loop sample-locked. */
+export const MENU_STEMS = 3
+/** Fixed mix gain (calibrated so the summed stems peak at ~0.82, like a normalised mix). */
+const MENU_GAIN = 0.413
+
+/** One stem of the 40 s menu cue: 0 drones+bass, 1 pads, 2 bells/percussion/pulse/texture. */
+function menuLoop(rng: Rng, stem: number): [Float32Array, Float32Array] {
   const N = samples(MENU_LEN)
   const L = new Float32Array(N)
   const R = new Float32Array(N)
+  if (stem === 0) {
+    menuDrones(L, R, N)
+    menuHarmony(L, R, rng, 'bass')
+  } else if (stem === 1) menuHarmony(L, R, rng, 'pads')
+  else {
+    menuHarmony(L, R, rng, 'bells')
+    menuRhythm(L, R, N, rng)
+  }
+  dcBlockStereo(L, R)
+  for (let i = 0; i < N; i++) {
+    L[i]! *= MENU_GAIN
+    R[i]! *= MENU_GAIN
+  }
+  return [L, R]
+}
 
+/** Linear DC removal (stems sum exactly like a mix filtered as a whole). */
+function dcBlockStereo(L: Float32Array, R: Float32Array) {
+  for (const a of [L, R]) {
+    let px = 0
+    let py = 0
+    for (let i = 0; i < a.length; i++) {
+      const x = a[i]!
+      py = x - px + 0.9975 * py
+      px = x
+      a[i] = py
+    }
+  }
+}
+
+function menuDrones(L: Float32Array, R: Float32Array, N: number) {
   // 1. Sub drone + dark saw drone, both periodic over the loop so the seam is invisible.
   const subF = 1308 / MENU_LEN // 32.7 Hz (C1) — integer cycles per loop
   const sawF = 2616 / MENU_LEN // C2
@@ -168,10 +205,10 @@ function menuLoop(rng: Rng): [Float32Array, Float32Array] {
   for (let i = 0; i < N; i++) {
     const t = i / N
     sp += (TWO_PI * subF) / SR
-    const swell = 0.7 + 0.3 * Math.sin(TWO_PI * 2 * t - 1.2)
-    const sub = (Math.sin(sp) + 0.35 * Math.sin(sp * 2 + 0.7)) * swell * 0.34
+    const swell = 0.7 + 0.3 * fsin(TWO_PI * 2 * t - 1.2)
+    const sub = (fsin(sp) + 0.35 * fsin(sp * 2 + 0.7)) * swell * 0.34
     if ((i & 127) === 0) {
-      const c = 110 + 90 * (0.5 + 0.5 * Math.sin(TWO_PI * 4 * t))
+      const c = 110 + 90 * (0.5 + 0.5 * fsin(TWO_PI * 4 * t))
       droneLP[0]!.lowpass(c, 1.1)
       droneLP[1]!.lowpass(c * 1.07, 1.1)
     }
@@ -182,7 +219,9 @@ function menuLoop(rng: Rng): [Float32Array, Float32Array] {
       ;(ch ? R : L)[i]! += s + sub
     }
   }
+}
 
+function menuHarmony(L: Float32Array, R: Float32Array, rng: Rng, part: 'pads' | 'bass' | 'bells') {
   // 2. Chord pads, bass, bells.
   const chords: { t: number; bass: number; pad: number[] }[] = [
     { t: 0, bass: 36, pad: [48, 55, 60, 63] }, // Cm
@@ -191,8 +230,12 @@ function menuLoop(rng: Rng): [Float32Array, Float32Array] {
     { t: 30, bass: 31, pad: [50, 55, 59, 62] }, // G
   ]
   chords.forEach((c, k) => {
-    const pad = synthPad({ notes: c.pad, dur: 10.5, release: 4, attack: 3.2, cut0: 380, cut1: 1500 + k * 120, level: 0.055, detune: 9, vibrato: 0.0015 }, rng)
-    addStereo(L, R, pad, c.t - 0.4 < 0 ? c.t + MENU_LEN - 0.4 : c.t - 0.4, true)
+    if (part === 'bells') return
+    if (part === 'pads') {
+      const pad = synthPad({ notes: c.pad, dur: 10.5, release: 4, attack: 3.2, cut0: 380, cut1: 1500 + k * 120, level: 0.055, detune: 9, vibrato: 0.0015 }, rng)
+      addStereo(L, R, pad, c.t - 0.4 < 0 ? c.t + MENU_LEN - 0.4 : c.t - 0.4, true)
+      return
+    }
     const b = buf(14)
     tone(b, 0, 12.5, midiToHz(c.bass), 0.42, 9, 1.0, [0.28, 0.12])
     lowpassInPlace(b, 420)
@@ -202,6 +245,7 @@ function menuLoop(rng: Rng): [Float32Array, Float32Array] {
     }
     addMono(L, R, b, c.t, true, 0.9, 0.9)
   })
+  if (part !== 'bells') return
   const bells: [number, number, number][] = [
     [2.5, 79, 0.55], [6.25, 75, 0.45], [8.75, 72, 0.5],
     [12.5, 75, 0.5], [16.25, 72, 0.45], [18.75, 68, 0.5],
@@ -210,10 +254,12 @@ function menuLoop(rng: Rng): [Float32Array, Float32Array] {
   ]
   for (const [t, m, lv] of bells) {
     const b = bell(midiToHz(m), lv * 0.55)
-    const pan = 0.5 + 0.5 * Math.sin(t * 1.7)
+    const pan = 0.5 + 0.5 * fsin(t * 1.7)
     addMono(L, R, b, t, true, 0.55 + 0.45 * (1 - pan), 0.55 + 0.45 * pan)
   }
+}
 
+function menuRhythm(L: Float32Array, R: Float32Array, N: number, rng: Rng) {
   // 3. Percussion — taiko on bar downbeats, building in the second half.
   const hitAt = (t: number, lv: number) => addMono(L, R, boom(rng, lv), t, true, 0.95, 0.95)
   for (let bar = 0; bar < 8; bar++) {
@@ -249,12 +295,10 @@ function menuLoop(rng: Rng): [Float32Array, Float32Array] {
   const wash = buf(40)
   noiseBurst(wash, 0, 40, 100, 0.35, rng, [bp(520, 0.5), lp(900)], 0.5)
   for (let i = 0; i < N; i++) {
-    const g = 0.5 + 0.5 * Math.sin(TWO_PI * (3 * i / N) + 0.9)
+    const g = 0.5 + 0.5 * fsin(TWO_PI * (3 * i / N) + 0.9)
     L[i]! += wash[i]! * g * 0.2
     R[i]! += wash[(i + 5000) % N]! * g * 0.2
   }
-
-  return finalizeStereo(L, R, 0.82, 0)
 }
 
 // ─── Stingers ───────────────────────────────────────────────────────────────
@@ -314,12 +358,13 @@ function defeatStinger(rng: Rng): [Float32Array, Float32Array] {
   for (let ch = 0; ch < 2; ch++) {
     const dst = ch ? R : L
     const ph = [0, 0.3, 0.6, 0.8]
-    const base = [24, 25, 30, 36]
+    const inc = [24, 25, 30, 36].map((m, k) => (midiToHz(m) * (1 + (ch ? 0.003 : -0.003) * (k + 1))) / SR)
     const f1 = new Biquad()
     const f2 = new Biquad()
+    let slide = 1
     for (let i = 0; i < N; i++) {
       const t = i / SR
-      const slide = Math.pow(2, (-3 * Math.min(1, t / 6)) / 12)
+      if ((i & 63) === 0) slide = Math.pow(2, (-3 * Math.min(1, t / 6)) / 12)
       if ((i & 63) === 0) {
         const c = 260 * Math.exp(-t / 3) + 80
         f1.lowpass(c, 1.4)
@@ -327,7 +372,7 @@ function defeatStinger(rng: Rng): [Float32Array, Float32Array] {
       }
       let s = 0
       for (let k = 0; k < 4; k++) {
-        ph[k]! += (midiToHz(base[k]!) * slide * (1 + (ch ? 0.003 : -0.003) * (k + 1))) / SR
+        ph[k]! += inc[k]! * slide
         ph[k]! -= Math.floor(ph[k]!)
         s += 2 * ph[k]! - 1
       }
@@ -341,9 +386,6 @@ function defeatStinger(rng: Rng): [Float32Array, Float32Array] {
   ring(g, 0, [139, 233, 361, 587, 811], [3.2, 2.4, 1.8, 1.2, 0.8], 0.22, [1, 0.8, 0.6, 0.4, 0.25])
   lowpassInPlace(g, 1800)
   addMono(L, R, g, 0.05, false, 0.9, 0.9)
-  // reverse-ish swell into the hit
-  const sw = buf(1.0)
-  sweepNoise(sw, 0, 1.0, 0.0, rng, 300, 300, 1) // placeholder to keep allocation deterministic
   return finalizeStereo(L, R, 0.88, 250)
 }
 
@@ -362,7 +404,7 @@ function drawStinger(rng: Rng): [Float32Array, Float32Array] {
 export function buildMusicJobs(): Job[] {
   const jobs: Job[] = []
   const add = (key: string, prio: number, rate: number, make: (i: number, rng: Rng) => Rendered) => jobs.push({ key, count: 1, prio, rate, make })
-  add('mus.menu', 1, 22050, (_i, r) => menuLoop(r))
+  for (let k = 0; k < MENU_STEMS; k++) add(`mus.menu.${k}`, 1, 22050, (_i, r) => menuLoop(r, k))
   add('mus.intro', 5, 32000, (_i, r) => introStinger(r))
   add('mus.go', 5, 32000, (_i, r) => goBeep(r))
   add('mus.victory', 5, 32000, (_i, r) => victoryStinger(r))

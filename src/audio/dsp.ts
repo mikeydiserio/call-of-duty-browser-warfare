@@ -11,6 +11,20 @@ export function setSampleRate(sr: number) {
   SR = sr
 }
 
+// Interpolated sine table: ~4x cheaper than Math.sin in the hot synthesis loops, error < 3e-7.
+const LUT_N = 4096
+const LUT = new Float32Array(LUT_N + 1)
+for (let i = 0; i <= LUT_N; i++) LUT[i] = Math.sin((i / LUT_N) * TWO_PI)
+const LUT_K = LUT_N / TWO_PI
+
+export function fsin(x: number): number {
+  let p = x * LUT_K
+  p -= Math.floor(p / LUT_N) * LUT_N
+  const i = p | 0
+  const a = LUT[i]!
+  return a + (LUT[i + 1]! - a) * (p - i)
+}
+
 export const samples = (t: number) => Math.max(0, Math.round(t * SR))
 export const buf = (seconds: number) => new Float32Array(samples(seconds))
 
@@ -162,7 +176,7 @@ export function sweepNoise(
   }
 }
 
-export const hump = (u: number) => Math.sin(Math.PI * u)
+export const hump = (u: number) => fsin(Math.PI * u)
 export const riseFall = (peak: number) => (u: number) => (u < peak ? Math.pow(u / peak, 1.5) : Math.pow(1 - (u - peak) / (1 - peak), 1.5))
 
 /** Sine whose pitch decays f0 → f1 (kick / thump / boom). */
@@ -190,7 +204,7 @@ export function pitchSine(
   for (let i = 0; i < n; i++) {
     const f = f1 + (f0 - f1) * fe
     ph += (TWO_PI * f) / SR
-    const s = Math.sin(ph) + harm * Math.sin(ph * 2)
+    const s = fsin(ph) + harm * fsin(ph * 2)
     d[s0 + i]! += s * ae * (i < att ? i / att : 1) * gain
     fe *= fd
     ae *= ad
@@ -220,8 +234,8 @@ export function tone(
   for (let i = 0; i < n; i++) {
     const fi = f1 === undefined ? f : f + (f1 - f) * (i / n)
     ph += (TWO_PI * fi) / SR
-    let s = Math.sin(ph)
-    for (let h = 0; h < harmonics.length; h++) s += harmonics[h]! * Math.sin(ph * (h + 2))
+    let s = fsin(ph)
+    for (let h = 0; h < harmonics.length; h++) s += harmonics[h]! * fsin(ph * (h + 2))
     const tail = i > n - rel ? (n - i) / rel : 1
     d[s0 + i]! += s * ae * (i < att ? i / att : 1) * tail * gain
     ae *= ad
@@ -245,9 +259,16 @@ export function ring(
     const dec = Math.exp(-1 / (tau * SR))
     const w = (TWO_PI * freqs[k]!) / SR
     const g = gain * (gains?.[k] ?? 1)
+    // recursive sine oscillator: y[n] = 2cos(w)·y[n-1] − y[n-2]
+    const c2 = 2 * Math.cos(w)
+    let y1 = 0
+    let y2 = -Math.sin(w)
     let env = 1
     for (let i = 0; i < n; i++) {
-      d[s0 + i]! += Math.sin(w * i) * env * g * (i < 8 ? i / 8 : 1)
+      const y = c2 * y1 - y2
+      y2 = y1
+      y1 = y
+      d[s0 + i]! += y2 * env * g * (i < 8 ? i / 8 : 1)
       env *= dec
     }
   }
@@ -266,7 +287,7 @@ export function cloth(d: Float32Array, t0: number, dur: number, gain: number, rn
     if ((i & 31) === 0) band.bandpass(f0 * Math.pow(f1 / f0, u), 0.7)
     let m = Math.abs(smooth.process(rng.signed())) * 7
     m = Math.min(1, m * m)
-    d[s0 + i]! += hi.process(band.process(rng.signed())) * m * Math.sin(Math.PI * u) * gain
+    d[s0 + i]! += hi.process(band.process(rng.signed())) * m * fsin(Math.PI * u) * gain
   }
 }
 
@@ -349,3 +370,10 @@ export const midiToHz = (m: number) => 440 * Math.pow(2, (m - 69) / 12)
 
 /** Naive (bright, intentionally gritty) saw for synth pads/brass; phase in [0,1). */
 export const saw = (phase: number) => 2 * phase - 1
+
+/** djb2 — stable per-key seed so variations are identical on every thread. */
+export function hashStr(s: string): number {
+  let h = 5381
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0
+  return h >>> 0
+}

@@ -16,9 +16,10 @@ import { Quaternion, Vector3 } from 'three'
 import type { Game } from '../core/game'
 import type { Actor, Surface, WeaponId } from '../core/types'
 import { WEAPONS } from '../weapons/defs'
-import { Rng, setSampleRate } from './dsp'
-import { buildMusicJobs } from './music'
+import { hashStr, Rng, SR, setSampleRate } from './dsp'
+import { buildMusicJobs, MENU_STEMS } from './music'
 import { buildCoreJobs, GUN_IDS, makeHallIR, makeOutdoorIR, type GunId, type Job, type Rendered } from './synth'
+import type { WorkerResult } from './synth.worker'
 
 export type UiSound = 'hover' | 'select' | 'back' | 'countdown' | 'countdownFinal' | 'error' | 'rankup'
 
@@ -80,12 +81,6 @@ interface Graph {
 
 const GUN_SET = new Set<string>(GUN_IDS)
 
-function hashStr(s: string): number {
-  let h = 5381
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0
-  return h >>> 0
-}
-
 const yieldNow = (() => {
   let ch: MessageChannel | null = null
   let pending: (() => void) | null = null
@@ -123,6 +118,8 @@ export class AudioEngine {
   genWallMs = 0
   genCpuMs = 0
   genFirstReadyMs = 0
+  /** Per-job synthesis time (ms), for profiling the bank. */
+  readonly genJobMs = new Map<string, number>()
 
   private voices: Voice[] = []
   private listenerPos = new Vector3()
@@ -136,7 +133,7 @@ export class AudioEngine {
   private breathGain: GainNode | null = null
   private windSrc: AudioBufferSourceNode | null = null
   private windGain: GainNode | null = null
-  private menuSrc: AudioBufferSourceNode | null = null
+  private menuSrc: AudioBufferSourceNode[] | null = null
   private menuGain: GainNode | null = null
   private menuWanted = false
   private battleTimer = 4
@@ -376,7 +373,9 @@ export class AudioEngine {
     // shared outdoor reverb send
     const reverbIn = mk(1)
     const reverbReturn = mk(0.7)
-    reverbIn.connect(this.makeConvolver(makeOutdoorIR(32000), 32000)).connect(reverbReturn)
+    // ConvolverNode buffers must match the context rate, so IRs are built here, at c.sampleRate.
+    const rate = c.sampleRate
+    reverbIn.connect(this.makeConvolver(withRate(rate, () => makeOutdoorIR(rate)), rate)).connect(reverbReturn)
     reverbReturn.connect(muffle)
 
     // music bus with its own hall
@@ -386,7 +385,7 @@ export class AudioEngine {
     musicIn.connect(musicBus)
     const musicSend = mk(0.32)
     musicIn.connect(musicSend)
-    musicSend.connect(this.makeConvolver(makeHallIR(22050), 22050)).connect(musicBus)
+    musicSend.connect(this.makeConvolver(withRate(rate, () => makeHallIR(rate)), rate)).connect(musicBus)
     this.reverbReady = true
 
     this.g = { master, limiter, analyser, gameDuck, muffle, weapons, sfx, amb, inner, ui, reverbIn, musicBus, musicIn }
@@ -443,10 +442,84 @@ export class AudioEngine {
     if (this.genState !== 'idle') return
     this.genState = 'running'
     const wall0 = performance.now()
-    let sliceStart = performance.now()
     const jobs: Job[] = [...buildCoreJobs(), ...buildMusicJobs()].sort((a, b) => a.prio - b.prio)
-    let uiDone = false
+    const firstLate = jobs.findIndex((j) => j.prio > 0)
+    const markReady = (doneKeys: Set<string>) => {
+      if (this.genFirstReadyMs === 0 && jobs.slice(0, firstLate).every((j) => doneKeys.has(j.key))) this.genFirstReadyMs = performance.now() - wall0
+    }
+    let ok = false
+    try {
+      ok = await this.generateInWorkers(jobs, markReady)
+    } catch (e) {
+      console.warn('[audio] worker synthesis unavailable, falling back to main thread', e)
+    }
+    if (!ok) await this.generateOnMainThread(jobs, markReady)
+    this.genWallMs = performance.now() - wall0
+    this.genState = 'done'
+  }
+
+  /** Pull-queue over a small worker pool, in priority order. Resolves false if workers can't start. */
+  private generateInWorkers(jobs: Job[], markReady: (done: Set<string>) => void): Promise<boolean> {
+    if (typeof Worker === 'undefined') return Promise.resolve(false)
+    const n = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1))
+    const queue = jobs.map((j) => j.key)
+    const done = new Set<string>()
+    return new Promise<boolean>((resolve) => {
+      const workers: Worker[] = []
+      let finished = false
+      const finish = (result: boolean) => {
+        if (finished) return
+        finished = true
+        for (const w of workers) w.terminate()
+        resolve(result)
+      }
+      const feed = (w: Worker) => {
+        const key = queue.shift()
+        if (key !== undefined) w.postMessage(key)
+        else if (done.size === jobs.length) finish(true)
+      }
+      for (let i = 0; i < n; i++) {
+        let w: Worker
+        try {
+          w = new Worker(new URL('./synth.worker.ts', import.meta.url), { type: 'module' })
+        } catch {
+          finish(false)
+          return
+        }
+        workers.push(w)
+        w.onmessage = (e: MessageEvent<WorkerResult>) => {
+          const r = e.data
+          const out: AudioBuffer[] = []
+          for (const c of r.chans) {
+            const ab = this.toAudioBuffer(c.length === 1 ? c[0]! : [c[0]!, c[1]!], r.rate)
+            if (ab) out.push(ab)
+          }
+          if (out.length) this.bank.set(r.key, out)
+          this.genCpuMs += r.ms
+          this.genJobMs.set(r.key, Math.round(r.ms))
+          done.add(r.key)
+          markReady(done)
+          feed(w)
+        }
+        // A worker that fails to load (CSP, old browser) → redo everything on the main thread.
+        w.onerror = (ev) => {
+          ev.preventDefault()
+          if (done.size === 0) finish(false)
+          else console.warn('[audio] synth worker error', ev.message)
+        }
+        feed(w)
+      }
+    })
+  }
+
+  private async generateOnMainThread(jobs: Job[], markReady: (done: Set<string>) => void) {
+    let sliceStart = performance.now()
+    const done = new Set<string>()
     for (const job of jobs) {
+      if (this.bank.has(job.key)) {
+        done.add(job.key)
+        continue
+      }
       const rate = job.rate ?? GEN_RATE
       const out: AudioBuffer[] = []
       for (let i = 0; i < job.count; i++) {
@@ -469,14 +542,10 @@ export class AudioEngine {
         }
       }
       if (out.length) this.bank.set(job.key, out)
-      if (!uiDone && job.prio > 0) {
-        uiDone = true
-        this.genFirstReadyMs = performance.now() - wall0
-      }
+      done.add(job.key)
+      markReady(done)
     }
     setSampleRate(GEN_RATE)
-    this.genWallMs = performance.now() - wall0
-    this.genState = 'done'
   }
 
   private toAudioBuffer(r: Rendered, rate: number): AudioBuffer | null {
@@ -660,30 +729,36 @@ export class AudioEngine {
     const g = this.g
     if (!c || !g) return
     if (this.menuWanted && !this.menuSrc) {
-      const m = this.bank.get('mus.menu')?.[0]
-      if (!m) return
-      const src = c.createBufferSource()
-      src.buffer = m
-      src.loop = true
+      const stems: AudioBuffer[] = []
+      for (let k = 0; k < MENU_STEMS; k++) {
+        const b = this.bank.get(`mus.menu.${k}`)?.[0]
+        if (!b) return
+        stems.push(b)
+      }
       const gn = c.createGain()
       gn.gain.value = 0
       gn.gain.setTargetAtTime(1, now, 1.1)
-      src.connect(gn).connect(g.musicIn)
-      src.start()
-      this.menuSrc = src
+      gn.connect(g.musicIn)
+      // Stems share length and start time, so they stay sample-locked across loops.
+      const when = now + 0.05
+      this.menuSrc = stems.map((b) => {
+        const src = c.createBufferSource()
+        src.buffer = b
+        src.loop = true
+        src.connect(gn)
+        src.start(when)
+        return src
+      })
       this.menuGain = gn
     } else if (!this.menuWanted && this.menuSrc && this.menuGain) {
-      const src = this.menuSrc
+      const srcs = this.menuSrc
       const gn = this.menuGain
       gn.gain.cancelScheduledValues(now)
       gn.gain.setTargetAtTime(0, now, 0.45)
-      src.stop(now + 3)
-      src.onended = () => {
-        try {
-          gn.disconnect()
-        } catch {
-          /* noop */
-        }
+      for (const src of srcs) src.stop(now + 3)
+      srcs[0]!.onended = () => {
+        for (const src of srcs) src.disconnect()
+        gn.disconnect()
       }
       this.menuSrc = null
       this.menuGain = null
@@ -829,7 +904,7 @@ export class AudioEngine {
       const mine = !!shooter?.isPlayer
       if (this.impactCount >= (mine ? 6 : 3)) return
       this.impactCount++
-      let key = impactKey(surface)
+      let key: string = impactKey(surface)
       if (key === 'metal' && Math.random() < 0.38) key = 'ricochet'
       this.play(`imp.${key}`, { bus: g.sfx, pos: point, gain: mine ? 1.0 : 0.8, ref: 3, rolloff: 1.4, prio: mine ? 90 : 40, send: 0.1, air: true })
     })
@@ -1025,6 +1100,17 @@ export class AudioEngine {
         /* noop */
       }
     }
+  }
+}
+
+/** Run a synth helper at a given sample rate (dsp.ts keeps the rate in a module global). */
+function withRate<T>(rate: number, fn: () => T): T {
+  const prev = SR
+  setSampleRate(rate)
+  try {
+    return fn()
+  } finally {
+    setSampleRate(prev)
   }
 }
 
