@@ -117,7 +117,9 @@ export interface PBRSet {
 
 const hex = (c: number) => [(c >> 16) & 255, (c >> 8) & 255, c & 255] as const
 
-// ─── Parkerized gunmetal with edge wear ────────────────────────────────────
+// ─── Parkerized / anodized gunmetal ─────────────────────────────────────────
+// Matte phosphate grain, faint handling marks and sparse fine scratches. Edge
+// wear is added per-pixel in the shader (see materials.ts), not baked here.
 
 export function makeGunmetal(tintBase = 0x2a2c2e, wearColor = 0x8d8f91, size = 512): PBRSet {
   const [cc, cctx, cimg] = makeCanvas(size)
@@ -127,20 +129,19 @@ export function makeGunmetal(tintBase = 0x2a2c2e, wearColor = 0x8d8f91, size = 5
   const wear = hex(wearColor)
   const rnd = seeded(7)
   const cd = cimg.data
-  // Scratch field: draw random thin lines into a wear buffer.
   const scratch = new Float32Array(size * size)
-  for (let i = 0; i < 140; i++) {
+  for (let i = 0; i < 70; i++) {
     let x = rnd() * size
     let y = rnd() * size
     const ang = rnd() * Math.PI
-    const len = 6 + rnd() * 60
-    const a = 0.15 + rnd() * 0.45
+    const len = 8 + rnd() * 40
+    const a = 0.2 + rnd() * 0.5
     const dx = Math.cos(ang)
     const dy = Math.sin(ang)
     for (let s = 0; s < len; s++) {
       const ix = ((Math.floor(x) % size) + size) % size
       const iy = ((Math.floor(y) % size) + size) % size
-      scratch[iy * size + ix] = Math.max(scratch[iy * size + ix]!, a)
+      scratch[iy * size + ix] = Math.max(scratch[iy * size + ix]!, a * (1 - Math.abs(s / len - 0.5) * 1.6))
       x += dx
       y += dy
     }
@@ -150,27 +151,57 @@ export function makeGunmetal(tintBase = 0x2a2c2e, wearColor = 0x8d8f91, size = 5
       const u = x / size
       const v = y / size
       const i = y * size + x
-      const big = N1.fbm(u, v, 3, 4)
-      const fine = N2.fbm(u, v, 64, 2)
-      const speck = N3.at(u * 200, v * 200, 200) > 0.93 ? 1 : 0
-      // Blotchy wear zones, concentrated where big noise is high.
-      const wz = Math.max(0, (big - 0.55) * 3)
-      const w = Math.min(1, wz * (0.35 + scratch[i]! * 0.8) + scratch[i]! * 0.3 + speck * 0.12)
-      const shade = 0.82 + fine * 0.3 + (big - 0.5) * 0.35
+      const big = N1.fbm(u, v, 3, 3)
+      const grain = N2.at(u * 256, v * 256, 256)
+      const grain2 = N3.at(u * 128 + 0.5, v * 128 + 0.5, 128)
+      const smudge = N3.fbm(u + 0.4, v + 0.2, 4, 3)
+      const sc = scratch[i]!
+      const w = Math.min(1, sc * 0.45)
+      const shade = 0.93 + (grain - 0.5) * 0.12 + (grain2 - 0.5) * 0.06 + (big - 0.5) * 0.1
       for (let k = 0; k < 3; k++) {
-        const b = base[k]! * shade
-        cd[i * 4 + k] = b + (wear[k]! - b) * w
+        const bb = base[k]! * shade
+        cd[i * 4 + k] = bb + (wear[k]! - bb) * w
       }
       cd[i * 4 + 3] = 255
-      rough[i] = 0.62 + (fine - 0.5) * 0.25 - w * 0.4 + (big - 0.5) * 0.15
-      height[i] = fine * 0.5 + (1 - scratch[i]!) * 0.35 + speck * 0.1
+      // handling polish lowers roughness in soft patches
+      rough[i] = 0.66 + (grain - 0.5) * 0.12 - Math.max(0, smudge - 0.55) * 0.5 - sc * 0.25
+      height[i] = grain * 0.55 + grain2 * 0.35 - sc * 0.4
     }
   }
   cctx.putImageData(cimg, 0, 0)
   return {
     map: toTexture(cc, true),
     rough: toTexture(grayCanvas(rough, size), false),
-    normal: toTexture(heightToNormal(height, size, 2.4), false),
+    normal: toTexture(heightToNormal(height, size, 0.9), false),
+  }
+}
+
+/** Brushed / machined steel (bolts, slides, blades): streaks along U. */
+export function makeSteel(base = 0x9a9ea2, size = 512): PBRSet {
+  const [cc, cctx, cimg] = makeCanvas(size)
+  const rough = new Float32Array(size * size)
+  const height = new Float32Array(size * size)
+  const c = hex(base)
+  const cd = cimg.data
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = x / size
+      const v = y / size
+      const i = y * size + x
+      const streak = N2.at(u * 6, v * 220, 220) * 0.6 + N3.at(u * 3, v * 90, 90) * 0.4
+      const big = N1.fbm(u, v, 3, 3)
+      const sh = 0.9 + (streak - 0.5) * 0.08 + (big - 0.5) * 0.08
+      for (let k = 0; k < 3; k++) cd[i * 4 + k] = Math.min(255, c[k]! * sh)
+      cd[i * 4 + 3] = 255
+      rough[i] = 0.34 + (streak - 0.5) * 0.14 + (big - 0.5) * 0.12
+      height[i] = streak
+    }
+  }
+  cctx.putImageData(cimg, 0, 0)
+  return {
+    map: toTexture(cc, true),
+    rough: toTexture(grayCanvas(rough, size), false),
+    normal: toTexture(heightToNormal(height, size, 0.35), false),
   }
 }
 
@@ -187,15 +218,16 @@ export function makePolymer(size = 512): PBRSet {
       const v = y / size
       const i = y * size + x
       const big = N1.fbm(u, v, 4, 3)
-      const stip = N2.at(u * 180, v * 180, 180)
-      const stip2 = N3.at(u * 90 + 0.5, v * 90 + 0.5, 90)
-      const sh = 0.78 + big * 0.35 + (stip - 0.5) * 0.14
+      const stip = N2.at(u * 200, v * 200, 200)
+      const stip2 = N3.at(u * 100 + 0.5, v * 100 + 0.5, 100)
+      const scuff = Math.max(0, N3.fbm(u + 0.3, v + 0.6, 6, 4) - 0.62) * 2.2
+      const sh = 0.9 + (big - 0.5) * 0.1 + (stip - 0.5) * 0.08 + scuff * 0.35
       const g = 255 * sh
       cd[i * 4] = g
       cd[i * 4 + 1] = g
       cd[i * 4 + 2] = g
       cd[i * 4 + 3] = 255
-      rough[i] = 0.55 + stip * 0.28 + (big - 0.5) * 0.2
+      rough[i] = 0.72 + (stip - 0.5) * 0.18 - scuff * 0.2
       height[i] = stip * 0.6 + stip2 * 0.4
     }
   }
@@ -203,51 +235,53 @@ export function makePolymer(size = 512): PBRSet {
   return {
     map: toTexture(cc, true),
     rough: toTexture(grayCanvas(rough, size), false),
-    normal: toTexture(heightToNormal(height, size, 1.6), false),
+    normal: toTexture(heightToNormal(height, size, 0.7), false),
   }
 }
 
 // ─── Wood ───────────────────────────────────────────────────────────────────
+// Soviet-style laminated birch under reddish shellac: fine straight grain along
+// V, the odd darker streak/knot, worn lighter on the high spots.
 
 export function makeWood(size = 512): PBRSet {
   const [cc, cctx, cimg] = makeCanvas(size)
   const rough = new Float32Array(size * size)
   const height = new Float32Array(size * size)
   const cd = cimg.data
-  const dark = hex(0x4a2412)
-  const mid = hex(0x8a4a22)
-  const light = hex(0xb06a34)
+  const dark = hex(0x2a1108)
+  const mid = hex(0x562411)
+  const light = hex(0x7c3a1a)
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const u = x / size
       const v = y / size
       const i = y * size + x
-      // Grain runs along V (stretched noise in V).
-      const warp = N1.fbm(u, v, 2, 3) * 0.7
-      const g1 = N2.at((u + warp) * 14, v * 1.5, 14)
-      const g2 = N3.at((u + warp * 0.5) * 60, v * 3, 60)
-      const rings = 0.5 + 0.5 * Math.sin((u + warp) * 90 + g1 * 6)
-      const t = Math.min(1, Math.max(0, rings * 0.55 + g1 * 0.35 + g2 * 0.12))
-      const kA = t < 0.5 ? t * 2 : (t - 0.5) * 2
+      // smooth warp so the grain wanders gently along V
+      const warp = (N1.fbm(u, v, 2, 4) - 0.5) * 0.35 + (N2.fbm(u + 0.3, v, 3, 3) - 0.5) * 0.12
+      const ph = (u + warp * 0.55) * 40 + N3.fbm(u * 3, v * 0.4, 3, 3) * 6
+      const lines = Math.pow(0.5 + 0.5 * Math.sin(ph * Math.PI * 2), 5) // thin late-wood lines
+      const fineL = Math.pow(0.5 + 0.5 * Math.sin(ph * Math.PI * 2 * 4.3 + warp * 9), 3)
+      const band = N3.fbm(u * 1.0 + warp * 0.4, v * 0.25, 3, 3) // broad light/dark lamination
+      const t = Math.min(1, Math.max(0, 0.38 + (band - 0.5) * 1.1 - lines * 0.16 - fineL * 0.05))
       const c0 = t < 0.5 ? dark : mid
       const c1 = t < 0.5 ? mid : light
-      for (let k = 0; k < 3; k++) cd[i * 4 + k] = c0[k]! + (c1[k]! - c0[k]!) * kA
-      // Dirt and wear
-      const dirt = N1.fbm(u + 0.3, v + 0.7, 5, 3)
-      const dk = 0.78 + dirt * 0.3
-      cd[i * 4] *= dk
-      cd[i * 4 + 1] *= dk
-      cd[i * 4 + 2] *= dk
+      const kA = t < 0.5 ? t * 2 : (t - 0.5) * 2
+      const wear = Math.max(0, N1.fbm(u + 0.5, v + 0.1, 5, 3) - 0.62) * 1.4
+      const grime = 0.9 + (N2.fbm(u + 0.3, v + 0.7, 6, 3) - 0.5) * 0.25
+      for (let k = 0; k < 3; k++) {
+        const col = (c0[k]! + (c1[k]! - c0[k]!) * kA) * grime
+        cd[i * 4 + k] = Math.min(255, col + wear * 28)
+      }
       cd[i * 4 + 3] = 255
-      rough[i] = 0.55 + g2 * 0.25
-      height[i] = g2 * 0.5 + rings * 0.3
+      rough[i] = 0.4 + lines * 0.18 + wear * 0.25
+      height[i] = -lines * 0.6 - fineL * 0.15
     }
   }
   cctx.putImageData(cimg, 0, 0)
   return {
     map: toTexture(cc, true),
     rough: toTexture(grayCanvas(rough, size), false),
-    normal: toTexture(heightToNormal(height, size, 1.4), false),
+    normal: toTexture(heightToNormal(height, size, 1.0), false),
   }
 }
 

@@ -49,9 +49,9 @@ function getStage(): Stage {
   renderer.domElement.style.cssText = 'display:block;width:100%;height:100%;touch-action:none;cursor:grab;'
   const scene = new Scene()
   scene.environment = makeStudioEnvironment(renderer)
-  scene.environmentIntensity = 1
+  scene.environmentIntensity = 0.8
   // Warm key (late-afternoon sun), cool rim from behind, soft hemi fill.
-  const key = new DirectionalLight(0xffd9a8, 3.6)
+  const key = new DirectionalLight(0xfff0dc, 3.4)
   key.position.set(2.5, 3, 3.2)
   const rim = new DirectionalLight(0xbcd2ff, 1.5)
   rim.position.set(-3, 1.6, -3)
@@ -177,6 +177,8 @@ export class WeaponPreview {
   private h = 0
   /** Debug: lock the turntable to a fixed yaw/pitch (radians). */
   debugAngle: [number, number] | null = null
+  /** Debug: camera distance multiplier (close-ups). */
+  debugZoom = 1
 
   mount(el: HTMLElement) {
     this.host = el
@@ -320,7 +322,7 @@ export class WeaponPreview {
     p.scale.setScalar(0.88 + 0.12 * e)
     st.shadow.position.y = -this.model.height * 0.5 - this.model.radius * 0.18
     st.shadow.scale.set(this.model.radius * 2.4, 1, this.model.radius * 1.1)
-    frame(st.camera, this.model, this.w / this.h, 1.04)
+    frame(st.camera, this.model, this.w / this.h, 1.04 * this.debugZoom)
     st.renderer.render(st.scene, st.camera)
   }
 }

@@ -75,24 +75,38 @@ export class Hand {
     if (left) this.inner.scale.x = -1
     const glove: MatKey = 'glove'
 
-    // Palm/back of hand: domed side profile (f forward = -z), extruded across X.
-    const palm = cached('palm', () => {
-      const g = prof(
-        [
-          [-0.052, -0.012, 0.01],
-          [0.04, -0.0135, 0.008],
-          [0.05, -0.004, 0.008],
-          [0.046, 0.011, 0.01],
-          [0.0, 0.0165, 0.02],
-          [-0.052, 0.0135, 0.012],
-        ],
-        0.078,
-        { bevel: 0.0075, r: 0.008 },
-      )
+    // Palm / back of hand: tapered superellipsoid, domed on the back, narrower at the wrist.
+    const palm = cached('palm2', () => {
+      const g = new SphereGeometry(1, 28, 18)
+      const p = g.attributes.position!
+      const e = 0.42
+      const sp = (v: number) => Math.sign(v) * Math.pow(Math.abs(v), e)
+      for (let i = 0; i < p.count; i++) {
+        let x = sp(p.getX(i)) * 0.0395
+        let y = sp(p.getY(i)) * 0.0142
+        const z = sp(p.getZ(i)) * 0.05 + 0.002
+        const tw = Math.max(0, z / 0.052) // 0 at knuckles .. 1 at wrist
+        x *= 1 - 0.2 * tw
+        if (y > 0) y += 0.0038 * (1 - (x / 0.04) ** 2) * (1 - tw * 0.5) // dome
+        else y *= 1 - 0.15 * tw
+        p.setXYZ(i, x, y, z)
+      }
+      g.computeVertexNormals()
       boxUV(g, 6)
       return g
     })
     this.inner.add(meshOf(palm, glove))
+    // Knuckle bumps under the glove
+    for (const f of FINGERS) {
+      const k = cached(`knb${f.x}`, () => {
+        const g = new SphereGeometry(f.r * 1.05, 12, 8)
+        g.scale(1, 0.75, 1.1)
+        g.translate(f.x * 1.02, 0.008, -0.043 - f.back)
+        boxUV(g, 6)
+        return g
+      })
+      this.inner.add(meshOf(k, glove))
+    }
     // Thenar pad (meaty base of the thumb) on the thumb side of the palm.
     const thenar = cached('thenar', () => {
       const g = new SphereGeometry(0.024, 12, 10)
@@ -128,8 +142,8 @@ export class Hand {
         } else {
           jg.position.set(0, 0, -f.len[j - 1]!)
         }
-        const r0 = f.r * (1 - j * 0.07)
-        const r1 = f.r * (1 - (j + 1) * 0.07)
+        const r0 = f.r * (1.08 - j * 0.09)
+        const r1 = f.r * (1.08 - (j + 1) * 0.09)
         jg.add(meshOf(segment(f.len[j]!, r0, r1), glove))
         parent.add(jg)
         parent = jg

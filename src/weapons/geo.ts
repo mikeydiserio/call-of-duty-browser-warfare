@@ -393,3 +393,92 @@ function rrect(p: Path, x: number, y: number, w: number, h: number, r: number): 
   p.lineTo(x, y + r)
   p.quadraticCurveTo(x, y, x + r, y)
 }
+
+// ─── Detail helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Extrude a FRONT cross-section (x, y) along the barrel from f0 to f1 (with a
+ * small bevel). Rails, slides, receiver tops, handguards — anything whose
+ * section is constant along its length.
+ */
+export function xsec(pts: [number, number][], f0: number, f1: number, bevel = 0.0008, r = 0.0015): BufferGeometry {
+  const shape = roundedPath(
+    new Shape(),
+    pts.map(([x, y]) => [x, y] as P),
+    r,
+  )
+  const len = f1 - f0
+  const bv = Math.min(bevel, len * 0.3)
+  const g = new ExtrudeGeometry(shape, {
+    depth: Math.max(0.0004, len - bv * 2),
+    bevelEnabled: bv > 0,
+    bevelThickness: bv,
+    bevelSize: bv,
+    bevelOffset: -bv,
+    bevelSegments: 1,
+    curveSegments: 3,
+  })
+  // extrude runs +Z (0..depth); map to z = -f1+bv .. -f0-bv
+  g.translate(0, 0, -f1 + bv)
+  g.deleteAttribute('uv')
+  return finish(g, 0.75)
+}
+
+/** Symmetric section from its right half (x >= 0), listed bottom -> top. */
+export function halfSec(right: [number, number][]): [number, number][] {
+  const left = right.map(([x, y]) => [-x, y] as [number, number]).reverse()
+  return [...right, ...left]
+}
+
+/** MIL-STD-1913 rail along the barrel: dovetail base + raised cross-slotted teeth. ytop = top of teeth. */
+export function rail1913(b: Builder, part: string, m: MatKey, f0: number, f1: number, ytop: number, x = 0, w = 0.0212, axis: 'top' | 'bottom' | 'left' | 'right' = 'top'): void {
+  const base = halfSec([
+    [w * 0.36, 0],
+    [w * 0.5, 0.0028],
+    [w * 0.5, 0.0045],
+    [w * 0.4, 0.0057],
+  ])
+  const tooth = halfSec([
+    [w * 0.4, 0.0057],
+    [w * 0.4, 0.0085],
+    [w * 0.36, 0.0095],
+  ])
+  const geos: BufferGeometry[] = [xsec(base, f0, f1, 0.0006, 0.0006)]
+  for (let f = f0 + 0.003; f + 0.0052 <= f1; f += 0.01) geos.push(xsec(tooth, f, f + 0.0052, 0.0004, 0.0004))
+  for (const g0 of geos) {
+    const g = g0
+    // section is built with its top at 0.0095; place it
+    g.translate(0, -0.0095, 0)
+    if (axis === 'bottom') g.rotateZ(Math.PI)
+    if (axis === 'left') g.rotateZ(Math.PI / 2)
+    if (axis === 'right') g.rotateZ(-Math.PI / 2)
+    if (axis === 'top') g.translate(x, ytop, 0)
+    else if (axis === 'bottom') g.translate(x, ytop, 0)
+    else g.translate(x, ytop, 0)
+    b.add(part, m, g)
+  }
+}
+
+/** Slotted screw / pin head on the side of a part (axis X). side = +1 right, -1 left. */
+export function screwHead(b: Builder, part: string, m: MatKey, xFace: number, y: number, f: number, r = 0.0028, slot = true): void {
+  const s = Math.sign(xFace) || 1
+  b.add(part, m, cyl(r, r * 0.92, 0, 0.0012, 0, 0, 12).rotateY(Math.PI / 2 * s).translate(xFace, y, -f))
+  const xa = xFace + s * 0.0009
+  const xb = xFace + s * 0.0014
+  if (slot) b.add(part, 'void', box(f - r * 0.75, f + r * 0.75, y - 0.00045, y + 0.00045, Math.min(xa, xb), Math.max(xa, xb)))
+}
+
+/** Cross pin visible on both faces of a part of half-width hw. */
+export function crossPin(b: Builder, part: string, m: MatKey, hw: number, y: number, f: number, r = 0.0022): void {
+  b.add(part, m, pin('x', r, hw * 2 + 0.0008, 0, y, f, 10))
+}
+
+/** Row of vertical grooves (slide serrations, grip texture) cut into a side face as dark slots. */
+export function serrations(b: Builder, part: string, f0: number, f1: number, y0: number, y1: number, xFace: number, n: number, depth = 0.0006): void {
+  const step = (f1 - f0) / n
+  for (let i = 0; i < n; i++) {
+    const f = f0 + i * step
+    b.add(part, 'void', box(f, f + step * 0.45, y0, y1, xFace - depth, xFace + 0.0002))
+    b.add(part, 'void', box(f, f + step * 0.45, y0, y1, -xFace - 0.0002, -xFace + depth))
+  }
+}

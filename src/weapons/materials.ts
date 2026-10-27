@@ -22,6 +22,7 @@ import {
   makeGunmetal,
   makePolymer,
   makeSkin,
+  makeSteel,
   makeWood,
   type PBRSet,
 } from './textures'
@@ -86,6 +87,40 @@ function std(set: PBRSet | null, o: { color?: number; metalness: number; rough?:
 }
 
 /**
+ * Procedural edge wear: screen-space curvature (|d normal| / |d position|)
+ * picks out bevels and sharp radii, which get polished to bare metal / scuffed
+ * polymer — the way real parkerized and anodized finishes wear.
+ */
+function wear<T extends MeshStandardMaterial>(m: T, color: number, strength: number): T {
+  const wearColor = new Color(color)
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uWearColor = { value: wearColor }
+    sh.uniforms.uWear = { value: strength }
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uWearColor;\nuniform float uWear;')
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        float wEdge = 0.0;
+        #ifndef FLAT_SHADED
+        {
+          vec3 wn = normalize(vNormal);
+          float curv = length(fwidth(wn)) / max(length(fwidth(vViewPosition)), 1e-6);
+          wEdge = smoothstep(180.0, 900.0, curv) * uWear;
+          #ifdef USE_ROUGHNESSMAP
+          wEdge *= smoothstep(0.2, 0.7, texture2D(roughnessMap, vRoughnessMapUv * 3.1).r + 0.2);
+          #endif
+        }
+        #endif
+        diffuseColor.rgb = mix(diffuseColor.rgb, uWearColor, wEdge);`,
+      )
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.3, wEdge);')
+  }
+  m.customProgramCacheKey = () => 'wpnWear'
+  return m
+}
+
+/**
  * Build the shared material table (idempotent). Reflections come from each
  * scene's `environment` (game sky in first person, studio light in the menu
  * preview), so the same materials work in any renderer.
@@ -93,9 +128,9 @@ function std(set: PBRSet | null, o: { color?: number; metalness: number; rough?:
 export function initViewmodelMaterials(): void {
   if (ready) return
   ready = true
-  sets.gun = makeGunmetal(0x34373a, 0x9a9c9e)
-  sets.blued = makeGunmetal(0x1d2023, 0x6a6c6e)
-  sets.steel = makeGunmetal(0x8c8e90, 0xd0d2d4)
+  sets.gun = makeGunmetal(0x2c2e31, 0x8c8f92)
+  sets.blued = makeGunmetal(0x17191c, 0x5c6066)
+  sets.steel = makeSteel(0xa4a8ac)
   sets.poly = makePolymer()
   sets.wood = makeWood()
   sets.camo = makeCamo()
@@ -103,13 +138,13 @@ export function initViewmodelMaterials(): void {
   sets.skin = makeSkin()
   sets.grenade = makeGrenadeBody()
 
-  table.set('metal', std(sets.gun!, { color: 0xffffff, metalness: 0.8, rough: 0.9, normalScale: 0.35 }))
-  table.set('steel', std(sets.steel!, { color: 0xffffff, metalness: 0.95, rough: 0.7, normalScale: 0.5 }))
-  table.set('blued', std(sets.blued!, { color: 0xffffff, metalness: 0.9, rough: 0.8, normalScale: 0.6 }))
-  table.set('poly', std(sets.poly!, { color: 0x34363a, metalness: 0.0, rough: 1, normalScale: 0.3 }))
-  table.set('polyTan', std(sets.poly!, { color: 0x9a8560, metalness: 0.0, rough: 1, normalScale: 0.3 }))
-  table.set('wood', std(sets.wood!, { color: 0x9a6f52, metalness: 0.0, rough: 1, normalScale: 0.6 }))
-  table.set('rubber', std(sets.poly!, { color: 0x1a1a1a, metalness: 0, rough: 1, normalScale: 0.6 }))
+  table.set('metal', wear(std(sets.gun!, { metalness: 0.75, rough: 1, normalScale: 0.5 }), 0x9a9c9e, 0.85))
+  table.set('steel', wear(std(sets.steel!, { metalness: 1, rough: 1, normalScale: 0.4 }), 0xd8dadc, 0.4))
+  table.set('blued', wear(std(sets.blued!, { metalness: 0.85, rough: 0.85, normalScale: 0.45 }), 0x7c8086, 0.7))
+  table.set('poly', wear(std(sets.poly!, { color: 0x232427, metalness: 0.0, rough: 1, normalScale: 0.5 }), 0x55575a, 0.45))
+  table.set('polyTan', wear(std(sets.poly!, { color: 0x8c7a58, metalness: 0.0, rough: 1, normalScale: 0.5 }), 0xb8a888, 0.4))
+  table.set('wood', wear(std(sets.wood!, { metalness: 0.0, rough: 1, normalScale: 0.7 }), 0xb06a3a, 0.5))
+  table.set('rubber', std(sets.poly!, { color: 0x161616, metalness: 0, rough: 1.15, normalScale: 0.9 }))
   table.set('brass', std(null, { color: 0xc89a3c, metalness: 1, rough: 0.28 }))
   table.set('chrome', std(null, { color: 0xdadde0, metalness: 1, rough: 0.12 }))
   table.set('void', new MeshStandardMaterial({ color: 0x050505, roughness: 0.9, metalness: 0 }))
