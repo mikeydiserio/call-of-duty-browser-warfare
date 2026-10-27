@@ -123,60 +123,18 @@ export class ModeHud {
   // ─────────────────────────────── events ────────────────────────────────
 
   private bind() {
+    // Captures, plants, defuses and round results are announced by the mode rules
+    // (match:announce); only the carrier-specific cues are added here.
     const g = this.game
     const ev = g.events
-    ev.on('objective:captured', ({ id, team }) => {
-      const prev = this.lastOwner.get(id) ?? null
-      this.lastOwner.set(id, team)
-      if (team === g.player.team) this.announce(`${id} CAPTURED!`, 'Hold it to earn points', 'friend')
-      else if (prev === g.player.team) this.announce(`WE LOST ${id}`, 'Take it back', 'enemy')
-      else this.announce(`ENEMY CAPTURED ${id}`, '', 'enemy')
-    })
+    ev.on('objective:captured', ({ id, team }) => this.lastOwner.set(id, team))
     ev.on('bomb:pickup', ({ actor }) => {
       if (actor.isPlayer) this.announce('YOU HAVE THE BOMB', 'Plant it at site A or B', 'friend')
     })
     ev.on('bomb:dropped', () => {
       const b = g.mode.bomb
-      if (b && b.attackers === g.player.team) this.announce('BOMB DROPPED', 'Recover the bomb', 'enemy')
+      if (b && b.attackers === g.player.team && g.player.alive) this.announce('BOMB DROPPED', 'Recover the bomb', 'enemy')
     })
-    ev.on('bomb:planted', ({ site }) => {
-      const b = g.mode.bomb
-      const ours = !!b && b.attackers === g.player.team
-      this.announce('BOMB PLANTED', ours ? `Defend site ${site}` : `Defuse the bomb at ${site}`, ours ? 'friend' : 'enemy')
-    })
-    ev.on('bomb:defused', () => {
-      const b = g.mode.bomb
-      const ours = !!b && b.attackers !== g.player.team
-      this.announce('BOMB DEFUSED', '', ours ? 'friend' : 'enemy')
-    })
-    ev.on('round:phase', ({ round, phase, winner, attackers }) => {
-      const mine = g.player.team
-      if (phase === 'start') {
-        const attack = attackers === mine
-        this.announce(`ROUND ${round}`, attack ? 'ATTACK: Destroy one of the targets' : 'DEFEND: Protect both targets', 'friend')
-      } else {
-        const res = winner === 'draw' || !winner ? 'ROUND DRAW' : winner === mine ? 'ROUND WIN' : 'ROUND LOSS'
-        this.announce(res, this.roundReason(winner ?? 'draw', attackers), winner === mine ? 'friend' : 'enemy')
-      }
-    })
-    ev.on('bomb:exploded', () => (this.lastBomb = 'exploded'))
-    ev.on('bomb:defused', () => (this.lastBomb = 'defused'))
-    ev.on('round:phase', ({ phase }) => {
-      if (phase === 'start') this.lastBomb = null
-    })
-  }
-
-  private lastBomb: 'exploded' | 'defused' | null = null
-
-  private roundReason(winner: Team | 'draw', attackers: Team): string {
-    if (this.lastBomb === 'exploded') return 'Target destroyed'
-    if (this.lastBomb === 'defused') return 'Bomb defused'
-    if (winner === 'draw') return 'Time expired'
-    const g = this.game
-    const loser: Team = winner === 'tf141' ? 'opfor' : 'tf141'
-    const anyAlive = g.actors.some((a) => a.alive && a.team === loser)
-    if (!anyAlive) return winner === g.player.team ? 'Enemy team eliminated' : 'Your team was eliminated'
-    return winner === attackers ? 'Target destroyed' : 'Time expired'
   }
 
   // ─────────────────────────────── per-frame ─────────────────────────────
@@ -245,12 +203,12 @@ export class ModeHud {
       const f = this.flags[i]
       if (!f) return
       const own = this.side(o.owner)
-      const capSide = this.side(o.capturingTeam)
+      const capSide = this.side(o.progressTeam ?? o.capturingTeam)
       const fsig = `${own}|${capSide}|${o.contested ? 1 : 0}|${o.progress.toFixed(2)}`
       if (fsig !== f.sig) {
         f.sig = fsig
         f.root.className = `flag own-${own} cap-${capSide}${o.contested ? ' contested' : ''}`
-        f.ring.setAttribute('stroke-dashoffset', String(RING_C * (1 - (o.capturingTeam || o.contested ? o.progress : 0))))
+        f.ring.setAttribute('stroke-dashoffset', String(RING_C * (1 - (o.progressTeam || o.capturingTeam ? o.progress : 0))))
       }
       if (player.alive && this.inside(o.position, o.radius)) {
         if (o.contested) {
@@ -299,15 +257,16 @@ export class ModeHud {
       setClass(this.sdTimer, 'urgent', t < 10)
     }
     const p = g.player
-    setClass(this.carry, 'on', !!b && b.carrier === p && p.alive)
+    setClass(this.carry, 'on', !!b && (b.carrier === p || b.carrierId === p.id) && p.alive)
 
     if (!b || !p.alive || g.mode.phase !== 'playing') return { text: '', p: 0, cls: '', key: '' }
-    if (b.defuseProgress > 0) return { text: 'DEFUSING BOMB…', p: b.defuseProgress, cls: attack ? 'enemy' : 'friend', key: '' }
-    if (b.plantProgress > 0) return { text: 'PLANTING BOMB…', p: b.plantProgress, cls: attack ? 'friend' : 'enemy', key: '' }
-    if (!planted && b.carrier === p) {
-      for (const s of g.map.bombSites) if (this.inside(s.position, s.radius)) return { text: `HOLD TO PLANT THE BOMB AT ${s.id}`, p: 0, cls: 'prompt', key: 'F' }
+    if (b.defusingId === p.id) return { text: 'DEFUSING BOMB…', p: b.defuseProgress, cls: 'friend', key: '' }
+    if (b.plantingId === p.id) return { text: 'PLANTING BOMB…', p: b.plantProgress, cls: 'friend', key: '' }
+    if (g.mode.wantsPlant(p)) {
+      const site = g.mode.bombSites.find((s) => this.inside(s.position, s.radius))
+      return { text: `HOLD TO PLANT THE BOMB${site ? ` AT ${site.id}` : ''}`, p: 0, cls: 'prompt', key: 'F' }
     }
-    if (planted && !attack && p.position.distanceTo(b.position) < 2.2) return { text: 'HOLD TO DEFUSE THE BOMB', p: 0, cls: 'prompt', key: 'F' }
+    if (g.mode.canDefuse(p)) return { text: 'HOLD TO DEFUSE THE BOMB', p: 0, cls: 'prompt', key: 'F' }
     return { text: '', p: 0, cls: '', key: '' }
   }
 
@@ -320,7 +279,7 @@ export class ModeHud {
       const m = this.markers[n++]
       if (m) this.placeMarker(m, pos, icon, cls, label, lift)
     }
-    if (g.mode.phase === 'playing' || g.mode.phase === 'intro') {
+    if ((g.mode.phase === 'playing' || g.mode.phase === 'intro') && g.player.alive) {
       if (g.mode.id === 'dom') {
         for (const o of g.mode.objectives) {
           // MW2 hides the marker of the flag you are standing on (the capture bar takes over).
@@ -335,10 +294,10 @@ export class ModeHud {
         if (b?.planted) {
           if (!(g.player.alive && g.player.position.distanceTo(b.position) < 2.2)) put(b.position, 'bomb', 'enemy hot', attack ? 'DEFEND' : 'DEFUSE', 1.4)
         } else {
-          for (const s of g.map.bombSites) {
+          for (const s of g.mode.bombSites) {
             if (!(g.player.alive && this.inside(s.position, s.radius))) put(s.position, s.id, 'site', attack ? 'PLANT' : 'DEFEND')
           }
-          if (b && !b.carrier && attack) put(b.position, 'bomb', 'friend', 'BOMB', 1)
+          if (b && !b.carrier && b.carrierId === null && attack) put(b.position, 'bomb', 'friend', 'BOMB', 1)
         }
       }
     }
@@ -364,12 +323,15 @@ export class ModeHud {
     const behind = v.z > 1
     if (behind) {
       x = W - x
-      y = H - 60
+      y = H - 250
     }
+    // Keep edge-clamped markers clear of the minimap (top-left) and the score/ammo band (bottom).
     const pad = 60
-    const clamped = behind || x < pad || x > W - pad || y < pad || y > H - pad
+    const bottom = H - 250
+    const clamped = behind || x < pad || x > W - pad || y < pad || y > bottom
     x = Math.min(W - pad, Math.max(pad, x))
-    y = Math.min(H - pad, Math.max(pad, y))
+    y = Math.min(bottom, Math.max(pad, y))
+    if (x < 320 && y < 320) x = 320
     const sig = `${icon}|${cls}|${label}`
     if (sig !== m.sig) {
       m.sig = sig

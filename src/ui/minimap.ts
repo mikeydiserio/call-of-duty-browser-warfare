@@ -86,7 +86,7 @@ export class Minimap {
     }
     const pt = { x: 0, y: 0 }
     const team = player.team
-    const uav = g.mode.isUavActive(team)
+    const uav = g.mode.isUavActiveFor(player)
     const now = g.realTime
 
     // UAV sweep
@@ -128,7 +128,7 @@ export class Minimap {
       let alpha = 0
       const until = this.spotted.get(a.id)
       if (until !== undefined && until > now) alpha = Math.min(1, (until - now) / 0.5)
-      if (uav) alpha = Math.max(alpha, 0.9)
+      if (g.mode.uavReveals(player, a)) alpha = Math.max(alpha, 0.9)
       if (alpha <= 0.01) continue
       toScreen(a.position.x, a.position.z, pt)
       if (pt.x < -6 || pt.y < -6 || pt.x > S + 6 || pt.y > S + 6) continue
@@ -196,7 +196,7 @@ export class Minimap {
       }
     } else if (g.mode.id === 'sd') {
       const b = g.mode.bomb
-      for (const site of g.map.bombSites) {
+      for (const site of g.mode.bombSites) {
         const hot = !!b?.planted && b.site === site.id
         pts.push({ id: site.id, x: site.position.x, z: site.position.z, color: hot ? ENEMY : '#ffd23a', pulse: hot })
       }
@@ -236,11 +236,12 @@ export class Minimap {
     if (b.planted) {
       x = b.position.x
       z = b.position.z
-    } else if (b.carrier) {
+    } else if (b.carrier ?? g.mode.actorById(b.carrierId)) {
+      const carrier = (b.carrier ?? g.mode.actorById(b.carrierId))!
       // Only your own team sees who has the bomb.
-      if (g.mode.isEnemy(g.player, b.carrier) || b.carrier.isPlayer) return
-      x = b.carrier.position.x
-      z = b.carrier.position.z
+      if (g.mode.isEnemy(g.player, carrier) || carrier.isPlayer) return
+      x = carrier.position.x
+      z = carrier.position.z
     } else {
       if (!attacking) return
       x = b.position.x

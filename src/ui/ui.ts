@@ -8,7 +8,7 @@ import { MainScreen } from './main-screen'
 import { ControlsScreen, OptionsScreen } from './options-screen'
 import { defaultMatch } from '../core/game'
 import { BrowserScreen, LobbyScreen } from './lobby-screens'
-import { IntroOverlay, LoadingScreen, Popup, ResultsOverlay, TitleCard } from './overlays'
+import { IntroOverlay, LoadingScreen, Popup, ResultsOverlay, TitleCard, Toasts } from './overlays'
 import { PauseScreen } from './pause-screen'
 import { Scoreboard } from './scoreboard'
 import type { Screen, ScreenId, UiCtx } from './screen'
@@ -34,6 +34,7 @@ export class UI implements UiCtx {
   private intro: IntroOverlay
   private results: ResultsOverlay
   private popupBox: Popup
+  private toasts = new Toasts()
   private tabBoard: Scoreboard
   private tabEl: HTMLElement
   private scale = 1
@@ -77,6 +78,7 @@ export class UI implements UiCtx {
     el('div', 'fx-scan', this.stage)
     this.popupBox = new Popup(this)
     this.stage.appendChild(this.popupBox.el)
+    this.stage.appendChild(this.toasts.el)
     this.title = new TitleCard()
     this.stage.appendChild(this.title.el)
 
@@ -209,9 +211,9 @@ export class UI implements UiCtx {
           break
       }
     })
-    ev.on('net:status', ({ connected, message }) => {
-      if (message) this.popup(connected ? 'NETWORK' : 'CONNECTION INTERRUPTED', message)
-      else if (!connected) this.popup('CONNECTION INTERRUPTED', 'The connection to the host was lost.')
+    ev.on('net:status', ({ role, connected, message }) => {
+      if (message) this.toasts.show(message, connected ? 'ok' : 'bad')
+      else if (connected && role === 'client') this.toasts.show('Connected to host', 'ok')
     })
     ev.on('ui:menu', ({ open }) => {
       if (open) {

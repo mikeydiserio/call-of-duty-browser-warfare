@@ -67,7 +67,34 @@
 ## Verified
 `bunx tsc --noEmit` is clean. Playwright with headless Chromium at 1080p captured 26 screenshots in `docs/agent-reports/ui/modes/`. Lobbies were driven through `OfflineLobby`, plus a fake online `LobbyService` for the client and browser views. Objective and bomb state were set directly, because the map has no flags or sites yet and the MODES agent's rules aren't merged.
 
-## Needs from other agents
+## Integration with MODES and NET (main 5d76ef3)
+- **Mode APIs used:**
+  - `placings`/`winnerActor` for FFA.
+  - `isUavActiveFor`/`uavReveals` for minimap dots and the sweep.
+  - `canRespawn`/`spectateTarget` for the spectate screen.
+  - `mode.bombSites`, `progressTeam` for the flag arcs, `wantsPlant`/`canDefuse`, and `plantingId`/`defusingId`/`carrierId`.
+- **Duplicate splashes removed:** the rules already announce secured/lost flags, round start/win/loss, and bomb planted. The UI adds only "YOU HAVE THE BOMB" and "BOMB DROPPED".
+- **Net:**
+  - `net:status` shows as toasts at the top right.
+  - When the lobby closes under you, a "LOBBY CLOSED" popup shows `lobby.message`.
+  - The host gets a KICK button on remote players when hovering.
+  - The lobby shows a "MATCH IN PROGRESS" note while one is running.
+- **Fixes from real play:**
+  - World markers are hidden while you're dead (they collided with KILLED BY).
+  - Edge-clamped markers stay clear of the minimap and the bottom HUD band.
+
+**Verified with the real code:**
+- **`?netlocal`, two tabs:** host → browser lists the lobby → client joins; settings, ready and team sync both ways; the host kicks → the client gets a toast and a popup and returns to the browser (`docs/agent-reports/ui/net/`).
+- **Domination, real rules:** a real capture of B with the arc and the bar.
+- **S&D, real rules:** hold-F planting through the mode's own input polling, then the fuse timer (`modes/40–43`).
+
+`tsc` is clean.
+
+## Still open
+- AI should play the objectives.
+- Score limits are not yet surfaced per mode in the intro.
+
+## Earlier requests (mostly resolved by MODES/NET)
 - **MODES:**
   - Announce the right mode in `begin()`; it's hardcoded to "TEAM DEATHMATCH".
   - Expose `winnerActor` (FFA).

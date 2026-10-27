@@ -45,11 +45,9 @@ export function stat(a: Actor, key: keyof ModeStats): number {
   return (a.stats as ModeStats)[key] ?? 0
 }
 
-/** FFA ranking: kills, then score, then fewest deaths. */
+/** FFA ranking as decided by the mode (final placings once the match ends, live ranking before). */
 export function ffaStandings(game: Game): Actor[] {
-  return game.actors
-    .slice()
-    .sort((a, b) => b.stats.kills - a.stats.kills || b.stats.score - a.stats.score || a.stats.deaths - b.stats.deaths || a.id - b.id)
+  return game.mode.placings
 }
 
 export function ordinal(n: number): string {
@@ -60,6 +58,5 @@ export function ordinal(n: number): string {
 
 /** FFA winner as exposed by the mode (falls back to the standings leader). */
 export function ffaWinner(game: Game): Actor | null {
-  const w = (game.mode as { winnerActor?: Actor | null }).winnerActor
-  return w ?? ffaStandings(game)[0] ?? null
+  return game.mode.winnerActor ?? ffaStandings(game)[0] ?? null
 }

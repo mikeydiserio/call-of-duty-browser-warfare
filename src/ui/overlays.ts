@@ -177,6 +177,7 @@ export class IntroOverlay {
       g.match.mode === 'ffa'
         ? `<div class="int ffa"><div class="nm">FREE-FOR-ALL</div><div class="sb">Every man for himself</div></div>`
         : `<div class="int"><div class="em">${emblemSvg('tf141')}</div><div class="nm">TASK FORCE 141</div>${sd ? `<div class="sb">${attack ? 'ATTACKING' : 'DEFENDING'}</div>` : ''}</div><div class="in-vs">VS</div><div class="int r"><div class="em">${emblemSvg('opfor')}</div><div class="nm">OPFOR</div>${sd ? `<div class="sb">${attack ? 'DEFENDING' : 'ATTACKING'}</div>` : ''}</div>`
+    this.label.textContent = sd && g.mode.round > 1 ? `ROUND ${g.mode.round} BEGINS IN` : 'MATCH BEGINS IN'
     this.el.classList.add('on')
     this.lastN = -1
   }
@@ -426,5 +427,20 @@ export class Popup {
 
   key(e: KeyboardEvent) {
     if (e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape') this.dismiss()
+  }
+}
+
+// ─── Toasts (network status) ───────────────────────────────────────────────
+
+export class Toasts {
+  readonly el = el('section', 'toasts')
+
+  show(text: string, cls: 'ok' | 'bad' = 'bad') {
+    const t = el('div', `toast ${cls}`, this.el)
+    el('b', '', t, cls === 'ok' ? 'NETWORK' : 'CONNECTION')
+    el('span', '', t, text)
+    window.setTimeout(() => t.classList.add('out'), 5200)
+    window.setTimeout(() => t.remove(), 5800)
+    while (this.el.childElementCount > 4) this.el.firstElementChild?.remove()
   }
 }
