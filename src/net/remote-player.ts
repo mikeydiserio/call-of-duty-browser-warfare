@@ -141,9 +141,10 @@ export class RemotePlayer implements Actor {
       const alive = (s.flags & F_ALIVE) !== 0
       if (alive && !this.alive) this.revive(s)
       else if (!alive && this.alive) {
-        // Missed the kill event (e.g. joined late): just hide.
+        // The kill event normally follows on the reliable channel; if it never comes
+        // (joined late), update() hides the body after a grace period.
         this.alive = false
-        this.rig.root.visible = false
+        this.corpseT = 0
       }
       this.health = s.health
     }
@@ -190,6 +191,7 @@ export class RemotePlayer implements Actor {
 
   onKilled(info: DamageInfo) {
     this.alive = false
+    this.rig.root.visible = true
     this.health = 0
     this.rig.root.updateMatrixWorld(true)
     this.ragdoll.start(this.velocity, info)
@@ -221,7 +223,7 @@ export class RemotePlayer implements Actor {
         this.ragdoll.update(dt)
         if (this.corpseT > CORPSE_TIME) this.ragdoll.sink(Math.min(1, (this.corpseT - CORPSE_TIME) / 1.5))
       }
-      if (this.corpseT > CORPSE_TIME + 1.5) this.rig.root.visible = false
+      if (this.corpseT > CORPSE_TIME + 1.5 || (!this.ragdoll.active && this.corpseT > 1)) this.rig.root.visible = false
       return
     }
     this.interpolate(now - INTERP_DELAY)

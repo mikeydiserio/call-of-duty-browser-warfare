@@ -334,7 +334,9 @@ export class ClientSession implements NetHooks {
       }
       case 'actor:killed': {
         const v = d.victim as Actor
-        if (!v.alive) return
+        // A snapshot may already have marked a mirror dead (state and events use different channels).
+        const late = !v.alive && v instanceof RemotePlayer && !v.ragdoll.active
+        if (!v.alive && !late) return
         v.health = 0
         v.alive = false
         v.onKilled(d as unknown as DamageInfo)
