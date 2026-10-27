@@ -1,35 +1,37 @@
-# Weapons & Viewmodel report
+# Weapons & Viewmodel report (pass 2)
 
-## Features
-- **WeaponSystem** (API unchanged): two slots plus 1 frag, rpm fire rate, auto or semi, phase gating.
-  - Intervention bolt cycle (unscopes, then re-scopes). SPAS pump plus a shell reload that firing interrupts.
-  - Tactical and empty reloads (Sleight of Hand halves them). Sprint or switch cancels a reload.
-  - Switch (Y, wheel, 1/2), sprint-out delay, ADS from `adsTime`.
-  - Spread bloom (Steady Aim ×0.65), recoil, dry-fire with auto-reload, frag cook/overcook, knife.
-  - Hitscan pellets from the eye. The world muzzle (viewmodel NDC unprojected) feeds `weapon:fire` and tracers. All events are emitted.
-- **Viewmodel**: articulated gloved hands, forearms with rolled multicam sleeves and a watch.
-  - Spring animation: breathing, figure-8 bob, sprint, stance, jump and land, sway, recoil.
-  - ADS puts the sight exactly on the camera axis.
-  - Reloads with a falling mag and charging handle. Pistol slide locks when empty.
-  - Bolt, pump, shells, knife, frag, switch, ladder.
-- **FX** (pooled): flash variants with a light, smoke, brass and shells.
-- **Scope**: mil-dot overlay with sway that the aim follows. Sprint holds breath.
-- **World models**: one vertex-coloured mesh per weapon, with a `muzzle` node.
+## What changed
+- **Gun models rebuilt from reference proportions** (ACR, M4A1, AK-47, UMP45, SPAS-12, USP .45, Desert Eagle).
+  - New helpers in `geo.ts`: front-section extrusions, MIL-STD-1913 rails with real teeth, screws, cross pins, serrations.
+  - M4: 33 mm bore-to-rail, KAC RAS, A2 front sight base, birdcage, BUIS, forward assist, dust cover, A2 grip, buffer tube and 6-position stock.
+  - AK: AKM stamped receiver with rivets, ribbed cover, tangent sight, hooded post, gas tube vents, cleaning rod, slant brake, ribbed mag.
+  - ACR: monolithic upper, angular lower and magwell, vented handguard, folding stock, Aimpoint-style dot.
+  - Pistols and SPAS also got slide sections, controls, stippling and pumps.
+- **Materials**
+  - New parkerized/anodized metal, brushed steel, stippled polymer and laminated-walnut generators.
+  - Shader **edge wear** from screen-space curvature.
+  - Metal albedos raised to physical values; they were near-black and rendered as silhouettes in game.
+  - A shared IBL gain plus a view fill/rim light keep the gun readable in shade.
+- **3D menu preview** (`preview.ts`, `WeaponPreview`: `mount`/`setWeapon`/`setVisible`/`dispose`)
+  - Uses the same cached geometry and materials as the viewmodel, with a studio PMREM, warm key and cool rim.
+  - Turntable, drag-rotate with inertia, idle bob, spin-in plus fade on change. Renders only while the class screen is visible.
+  - Picker and slot icons are thumbnails rendered once from the real models (`weaponThumbnail`).
+  - `class-screen.ts` is wired to it (integrator exception). Killfeed SVGs are untouched.
+- **Hands**: superellipsoid palm with a domed back and wrist taper, knuckle bumps, thicker finger bases.
+- **World models**: the same builders feed the bot meshes, with a <6 mm detail filter (vertex count roughly halved on the heaviest models).
 
-## Status
-All 8 guns plus frag and knife render. ADS alignment was checked on every gun (`g-a1.png`, `g-a2.png`). Screenshots are in `docs/agent-reports/weapons/`.
-
-## Verified in browser (event log)
-Auto fire, tactical reload, switch, pistol empty → auto-reload with slide release, knife hit event, frag throw and explode, Intervention scope → unscope during bolt → re-scope, SPAS pump, shell reload interrupted by fire, no firing during intro.
+## Verified (Playwright, swiftshader)
+- Menu preview and thumbnails for every weapon.
+- First person: hip and ADS for all 8 guns. Sights stay on centre after the height changes.
+- Mid-reload frame and hand close-ups.
+- Screenshots: `docs/agent-reports/weapons/` (`ia*`, `ib*`, `vh*`, `va*`, `vl`, `vx`, `menu-class-*`).
+- `bunx tsc --noEmit` is clean.
 
 ## Known issues
-- Hands are still blocky up close, and the knife slash reads end-on mid-swing.
-- Brass lives in camera space, so it doesn't stay put in the world when you turn.
-- Bot world models are about 15–30k verts each.
-- Commando perk is ignored.
+- Hands still look blocky up close at odd angles.
+- The Intervention, frag and knife got no model pass.
+- Bot weapons are still 20–52k verts each; there is one draw call per bot.
+- Pistol thumbnails are small because the frame is fitted by length.
 
 ## CORE REQUESTS
-- `src/ui/ui.css` is missing at 02e0051, so the app 500s. I tested with an untracked empty stub.
-- `audio.ts` ConvolverNode sample-rate mismatch throws in `startMatch` (headless 44.1 kHz).
-- `fireBullet` should return the hit point for actor hits; tracers currently approximate it.
-- Debug handle: `window.__weapons` (`timeScale`, `debugPose`, `debugGive`).
+- None new.

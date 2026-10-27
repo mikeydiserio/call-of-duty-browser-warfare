@@ -123,6 +123,14 @@ export function weaponThumbnail(id: WeaponId, w = 240, h = 96): string {
   const prevParent = m.pivot.parent
   const prevRot = m.pivot.rotation.clone()
   const prevScale = m.pivot.scale.x
+  // render this model alone: hide whatever the live preview is showing
+  const hidden: Group[] = []
+  for (const o of models.values()) {
+    if (o !== m && o.pivot.visible) {
+      o.pivot.visible = false
+      hidden.push(o.pivot)
+    }
+  }
   st.scene.add(m.pivot)
   m.pivot.rotation.set(0.05, -Math.PI / 2 + 0.12, 0)
   m.pivot.scale.setScalar(1)
@@ -140,6 +148,7 @@ export function weaponThumbnail(id: WeaponId, w = 240, h = 96): string {
   m.pivot.rotation.copy(prevRot)
   m.pivot.scale.setScalar(prevScale)
   st.shadow.visible = true
+  for (const p of hidden) p.visible = true
   active?.refit()
   thumbs.set(key, url)
   return url

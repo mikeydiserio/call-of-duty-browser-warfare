@@ -284,13 +284,23 @@ export class Builder {
     return { root, parts }
   }
 
-  /** All geometry merged into a single vertex-coloured mesh geometry (for bot weapons). */
-  buildWorld(colorOf: (k: MatKey) => [number, number, number] | null): BufferGeometry {
+  /**
+   * All geometry merged into a single vertex-coloured mesh geometry (for bot
+   * weapons). Pieces whose second-largest dimension is below `minFeature`
+   * (rail teeth, pins, screws, slots) are dropped — invisible at bot range.
+   */
+  buildWorld(colorOf: (k: MatKey) => [number, number, number] | null, minFeature = 0.006): BufferGeometry {
     const list: BufferGeometry[] = []
     for (const b of this.buckets.values()) {
       const c = colorOf(b.mat)
       if (!c) continue
       for (const g0 of b.geos) {
+        if (minFeature > 0) {
+          g0.computeBoundingBox()
+          const bb = g0.boundingBox!
+          const d = [bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z].sort((a, b) => a - b)
+          if (d[1]! < minFeature) continue
+        }
         const g = g0.clone()
         const n = g.attributes.position!.count
         const col = new Float32Array(n * 3)

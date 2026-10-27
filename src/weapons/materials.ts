@@ -197,9 +197,9 @@ export function makeStudioEnvironment(renderer: WebGLRenderer): Texture {
   const geo = new SphereGeometry(50, 48, 32)
   const pos = geo.attributes.position!
   const col = new Float32Array(pos.count * 3)
-  const top = new Color(0x7f98b4)
-  const hor = new Color(0xe0c49a)
-  const bot = new Color(0x4a3c2c)
+  const top = new Color(0x8a9cb2)
+  const hor = new Color(0xcfc8bc)
+  const bot = new Color(0x3c3936)
   const tmp = new Color()
   for (let i = 0; i < pos.count; i++) {
     const y = pos.getY(i) / 50
