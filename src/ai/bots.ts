@@ -7,6 +7,8 @@ import { getNavGraph, type NavGraph } from './nav'
 import { generateNames } from './names'
 
 const _cam = new Vector3()
+const _fwd = new Vector3()
+const _to = new Vector3()
 
 /**
  * Owns the bots: builds the nav graph (cached per map), creates the two squads
@@ -87,10 +89,15 @@ export class BotManager {
 
   update(dt: number) {
     const t0 = performance.now()
-    this.game.render.camera.getWorldPosition(_cam)
+    const cam = this.game.render.camera
+    cam.getWorldPosition(_cam)
+    cam.getWorldDirection(_fwd)
+    const cosHalf = Math.cos(((cam.fov * Math.max(1, cam.aspect)) / 2 + 12) * (Math.PI / 180))
     for (const b of this.list) {
-      const far = b.position.distanceToSquared(_cam) > 40 * 40
-      b.update(dt, far)
+      _to.set(b.position.x - _cam.x, b.position.y + 1 - _cam.y, b.position.z - _cam.z)
+      const d = _to.length()
+      const onScreen = d < 3 || _to.dot(_fwd) > cosHalf * d
+      b.update(dt, !onScreen ? 2 : d > 40 ? 1 : 0)
     }
     // UAV sweeps reveal enemies to the owning team.
     this.uavT -= dt

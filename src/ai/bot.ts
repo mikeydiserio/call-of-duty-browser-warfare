@@ -339,7 +339,7 @@ export class Bot implements Actor {
     this.anim.reset(0)
     this.rig.root.visible = true
     this.animAcc = 1
-    this.animate(0.016, true)
+    this.animate(0.016, 0)
   }
 
   private crowded(p: Vector3): boolean {
@@ -374,7 +374,8 @@ export class Bot implements Actor {
 
   // ─── Per-frame ────────────────────────────────────────────────────────────
 
-  update(dt: number, lodFar: boolean) {
+  /** lod: 0 full, 1 far (half rate), 2 off-screen (third rate). */
+  update(dt: number, lod: number) {
     if (!this.alive) {
       this.updateCorpse(dt)
       return
@@ -397,7 +398,7 @@ export class Bot implements Actor {
       this.sprinting = false
     }
     this.move(dt)
-    this.animate(dt, !lodFar)
+    this.animate(dt, lod)
   }
 
   private timers(dt: number) {
@@ -1666,11 +1667,12 @@ export class Bot implements Actor {
 
   // ─── Animation ────────────────────────────────────────────────────────────
 
-  private animate(dt: number, full: boolean) {
-    // LOD: far bots animate at half rate.
+  private animate(dt: number, lod: number) {
+    // LOD: far bots animate at half rate, off-screen ones at a third.
     this.animAcc += dt
     this.animFrame++
-    if (!full && (this.animFrame & 1) === 1 && this.animAcc < 0.1) return
+    const full = lod === 0
+    if (lod > 0 && this.animFrame % (lod + 1) !== 0 && this.animAcc < 0.1) return
     const a = this.animIn
     a.dt = this.animAcc
     this.animAcc = 0

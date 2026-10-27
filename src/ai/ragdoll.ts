@@ -56,6 +56,11 @@ export class Ragdoll {
   private pos = Array.from({ length: N }, () => new Vector3())
   private prev = Array.from({ length: N }, () => new Vector3())
   private rest = new Float32Array(LINKS.length)
+  /** Cached floor contact per particle (skips raycasts once settled). */
+  private gValid = new Uint8Array(N)
+  private gx = new Float32Array(N)
+  private gy = new Float32Array(N)
+  private gz = new Float32Array(N)
   private acc = 0
   private sleepT = 0
   active = false
@@ -104,6 +109,7 @@ export class Ragdoll {
     this.acc = 0
     this.sleepT = 0
     this.age = 0
+    this.gValid.fill(0)
     this.active = true
     this.asleep = false
     // The skeleton is driven in world space from now on: neutralise the root.
@@ -180,12 +186,29 @@ export class Ragdoll {
       const len = _d.length()
       maxMove = Math.max(maxMove, len)
       if (len < 1e-5) continue
+      // Slow particle over a cached floor patch: clamp without a raycast.
+      if (this.gValid[i] && len < 0.04 && Math.abs(p.x - this.gx[i]!) < 0.2 && Math.abs(p.z - this.gz[i]!) < 0.2) {
+        const fy = this.gy[i]! + r
+        if (p.y < fy) {
+          p.y = fy
+          q.x = p.x - (p.x - q.x) * 0.45
+          q.z = p.z - (p.z - q.z) * 0.45
+          if (q.y < p.y) q.y = p.y
+        }
+        continue
+      }
       _d.divideScalar(len)
       // Start slightly behind so a particle sitting on the floor still sees it.
       _o.copy(q).addScaledVector(_d, -0.02)
       const hit = this.world.raycast(_o, _d, len + r + 0.02)
       if (hit) {
         p.copy(hit.point).addScaledVector(hit.normal, r)
+        if (hit.normal.y > 0.85) {
+          this.gValid[i] = 1
+          this.gx[i] = p.x
+          this.gy[i] = hit.point.y
+          this.gz[i] = p.z
+        }
         // Friction: kill most tangential velocity, no bounce.
         _v.subVectors(p, q).multiplyScalar(0.45)
         q.copy(p).sub(_v)
