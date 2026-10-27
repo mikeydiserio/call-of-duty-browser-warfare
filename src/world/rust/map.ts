@@ -14,7 +14,7 @@ import { drawMinimap } from './minimap'
 import { type Ctx, Instancer, registerPrototypes } from './props'
 import { buildDecals, buildTerrain, type DarkSpot, type Patch, type Track } from './terrain'
 import { buildTower, TOWER } from './tower'
-import { BOMB_SITES, BOMB_SPAWN, buildObjectives, DOM_FLAGS } from './objectives'
+import { BOMB_SITES, BOMB_SPAWN, buildObjectives, DOM_FLAGS, SD_ATTACKERS_FIRST } from './objectives'
 import { BIG_PIPE, buildScatter, buildZones, ZONES } from './zones'
 
 const V = (x: number, y: number, z: number) => new Vector3(x, y, z)
@@ -191,6 +191,7 @@ export function buildRustMap(scene: Scene, collision: CollisionWorld): MapData {
     domFlags,
     bombSites,
     bombSpawn,
+    sdAttackersFirst: SD_ATTACKERS_FIRST,
     ladders: c.ladders,
     nav: [],
     callouts,

@@ -92,10 +92,20 @@ export class Input {
     try {
       const p = req.call(this.element, { unadjustedMovement: true })
       if (p && typeof (p as Promise<void>).catch === 'function') {
-        ;(p as Promise<void>).catch(() => this.element.requestPointerLock())
+        ;(p as Promise<void>).catch(() => this.fallbackLock())
       }
     } catch {
-      this.element.requestPointerLock()
+      this.fallbackLock()
+    }
+  }
+
+  /** Retry without options; without a user gesture this rejects, which is fine (we lock on the next click). */
+  private fallbackLock() {
+    try {
+      const p = (this.element.requestPointerLock as () => Promise<void> | void).call(this.element)
+      if (p && typeof (p as Promise<void>).catch === 'function') (p as Promise<void>).catch(() => {})
+    } catch {
+      /* no gesture yet */
     }
   }
 
