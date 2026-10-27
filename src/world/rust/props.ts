@@ -209,6 +209,9 @@ function sandbagGeometry() {
     p.setXYZ(i, v.x, v.y, v.z)
   }
   g.computeVertexNormals()
+  // the sandbag texture is an atlas of 2 x 4 bags; map every face onto one bag
+  const uv = g.getAttribute('uv')
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, 0.04 + uv.getX(i) * 0.42, 0.02 + uv.getY(i) * 0.21)
   return g
 }
 
@@ -425,25 +428,103 @@ export function angle(b: MapBuilder, mat: MatKey, a: Vector3, bb: Vector3, s: nu
   col?.dispose()
 }
 
-/** Corrugated sheet (real wavy geometry) w × h, centred at local (x,y,z), facing ±Z (rotate with ry). */
-export function corrugated(b: MapBuilder, mat: MatKey, w: number, h: number, x: number, y: number, z: number, o: { ry?: number; rx?: number; rz?: number; col?: Surface | false; vertical?: boolean } = {}) {
-  const waves = Math.max(1, Math.round(w * 6))
-  const g = new PlaneGeometry(w, h, waves * 4, 1)
-  const p = g.getAttribute('position')
-  for (let i = 0; i < p.count; i++) {
-    const px = p.getX(i)
-    p.setZ(i, Math.sin(((px + w / 2) / w) * waves * Math.PI * 2) * 0.016)
-  }
-  g.computeVertexNormals()
+/** Profile depth (0..1) at fraction t of one corrugation pitch. */
+function profileAt(t: number, trap: boolean) {
+  if (!trap) return Math.sin(t * Math.PI * 2 - Math.PI / 2) * 0.5 + 0.5
+  if (t < 0.15 || t > 0.85) return 0
+  if (t < 0.3) return (t - 0.15) / 0.15
+  if (t > 0.7) return (0.85 - t) / 0.15
+  return 1
+}
+
+/**
+ * Corrugated sheet (real profiled geometry) w × h, centred at local (x,y,z), facing ±Z (rotate
+ * with ry). Ridge pitch is tied to the material's texture tile so geometry and normal map agree:
+ * sine = 8 waves per tile (tin), trap = 11 ribs per tile (containers).
+ */
+export function corrugated(
+  b: MapBuilder,
+  mat: MatKey,
+  w: number,
+  h: number,
+  x: number,
+  y: number,
+  z: number,
+  o: { ry?: number; rx?: number; rz?: number; col?: Surface | false; trap?: boolean; depth?: number } = {},
+) {
   const def = b.mats[mat]
-  // UVs: u across the corrugation in metres/tile, v up
-  const uv = g.getAttribute('uv')
-  const ou = b.rand(0, 1)
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, (p.getX(i) + w / 2) / def.tw + ou, (p.getY(i) + h / 2) / def.th + 0.3 * ou)
-  const col = o.col === false ? undefined : new BoxGeometry(w, h, 0.05)
+  const trap = o.trap ?? false
+  const perTile = trap ? 11 : 8
+  const pitch = def.tw / perTile
+  const depth = o.depth ?? (trap ? 0.035 : 0.022)
+  const samples = trap ? [0, 0.15, 0.3, 0.7, 0.85] : [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875]
+  const xs: number[] = []
+  const n = Math.max(1, Math.round(w / pitch))
+  const realPitch = w / n
+  for (let i = 0; i < n; i++) for (const t of samples) xs.push((i + t) * realPitch)
+  xs.push(w)
+  const pos: number[] = []
+  const uv: number[] = []
+  const ov = b.rand(0, 1)
+  const ou = Math.floor(b.rand(0, 4))
+  for (let i = 0; i < xs.length - 1; i++) {
+    const x0 = xs[i]!
+    const x1 = xs[i + 1]!
+    const z0 = profileAt(fractOf(x0 / realPitch), trap) * depth - depth / 2
+    const z1 = profileAt(i + 1 === xs.length - 1 ? 0 : fractOf(x1 / realPitch), trap) * depth - depth / 2
+    const ax = x0 - w / 2
+    const bx = x1 - w / 2
+    // two triangles (non-indexed so ridges stay crisp for trapezoids)
+    const quad: [number, number, number][] = [
+      [ax, -h / 2, z0],
+      [bx, -h / 2, z1],
+      [bx, h / 2, z1],
+      [ax, -h / 2, z0],
+      [bx, h / 2, z1],
+      [ax, h / 2, z0],
+    ]
+    for (const [px, py, pz] of quad) {
+      pos.push(px, py, pz)
+      uv.push((px + w / 2) / def.tw + ou, (py + h / 2) / def.th + ov)
+    }
+  }
+  const g = new BufferGeometry()
+  g.setAttribute('position', new Float32BufferAttribute(pos, 3))
+  g.setAttribute('uv', new Float32BufferAttribute(uv, 2))
+  if (trap) g.computeVertexNormals()
+  else {
+    // smooth normals for sine sheets
+    const idxG = mergeByPosition(g)
+    idxG.computeVertexNormals()
+    g.setAttribute('normal', idxG.toNonIndexed().getAttribute('normal'))
+  }
+  const col = o.col === false ? undefined : new BoxGeometry(w, h, Math.max(0.05, depth))
   b.geo(mat, g, x, y, z, { ry: o.ry, rx: o.rx, rz: o.rz, keepUV: true, col: o.col, collider: col })
   g.dispose()
   col?.dispose()
+}
+
+const fractOf = (v: number) => v - Math.floor(v + 1e-6)
+
+function mergeByPosition(g: BufferGeometry) {
+  const p = g.getAttribute('position')
+  const map = new Map<string, number>()
+  const verts: number[] = []
+  const idx: number[] = []
+  for (let i = 0; i < p.count; i++) {
+    const k = `${p.getX(i).toFixed(4)},${p.getY(i).toFixed(4)},${p.getZ(i).toFixed(4)}`
+    let j = map.get(k)
+    if (j === undefined) {
+      j = verts.length / 3
+      verts.push(p.getX(i), p.getY(i), p.getZ(i))
+      map.set(k, j)
+    }
+    idx.push(j)
+  }
+  const out = new BufferGeometry()
+  out.setAttribute('position', new Float32BufferAttribute(verts, 3))
+  out.setIndex(idx)
+  return out
 }
 
 // ─── ladders ──────────────────────────────────────────────────────────────
@@ -525,16 +606,16 @@ export function container(c: Ctx, x: number, y: number, z: number, ry: number, m
   if (o.fp !== false) c.fp.push({ x, z, w: L, d: W, ry, kind: 'container', fill })
   b.frame(x, y, z, ry, () => {
     const t = 0.05
-    if (!o.open) {
-      b.box(mat, L - 0.08, H - 0.16, W - 0.06, 0, H / 2, 0, { col: false })
+    // corrugated walls (real ribs), flat roof panel and floor
+    const wc: Surface | false = o.open ? 'metal' : false
+    corrugated(b, mat, L - 0.3, H - 0.26, 0, H / 2, W / 2 - 0.06, { trap: true, col: wc })
+    corrugated(b, mat, L - 0.3, H - 0.26, 0, H / 2, -W / 2 + 0.06, { trap: true, col: wc, ry: Math.PI })
+    corrugated(b, mat, W - 0.3, H - 0.26, -L / 2 + 0.06, H / 2, 0, { trap: true, col: wc, ry: -Math.PI / 2 })
+    b.box(mat, L - 0.12, t, W - 0.12, 0, H - 0.05, 0, { col: o.open ? 'metal' : false })
+    if (o.open) b.box('woodDark', L - 0.12, 0.08, W - 0.12, 0, 0.1, 0)
+    else {
+      b.box('black', L - 0.3, H - 0.3, W - 0.3, 0, H / 2, 0, { col: false })
       b.colBox(0, H / 2, 0, L, H, W, 'metal')
-    } else {
-      // hollow: side walls, back, roof, floor
-      b.box(mat, L - 0.1, H - 0.16, t, 0, H / 2, W / 2 - 0.04)
-      b.box(mat, L - 0.1, H - 0.16, t, 0, H / 2, -W / 2 + 0.04)
-      b.box(mat, t, H - 0.16, W - 0.1, -L / 2 + 0.06, H / 2, 0)
-      b.box(mat, L - 0.1, t, W - 0.1, 0, H - 0.08, 0)
-      b.box('woodDark', L - 0.12, 0.08, W - 0.12, 0, 0.1, 0)
     }
     // frame: corner posts, rails
     for (const sx of [-1, 1]) {
@@ -580,10 +661,6 @@ export function container(c: Ctx, x: number, y: number, z: number, ry: number, m
         // hinges
         for (const yy of [0.5, 1.3, 2.1]) b.box('rustDark', 0.06, 0.1, 0.06, 0.03, yy, 0, { col: false })
       })
-    }
-    if (!o.open) {
-      // rear end panel detail
-      b.box(mat, 0.03, H - 0.4, W - 0.36, -L / 2 + 0.02, H / 2, 0, { col: false })
     }
   })
 }
@@ -865,7 +942,13 @@ export function valve(c: Ctx, x: number, z: number, ry: number, h = 1.1) {
 
 export function rock(c: Ctx, x: number, z: number, s: number, solid = s > 0.45) {
   const key = `rock${Math.floor(c.b.rand(0, 3))}`
-  const y = groundY(x, z) - s * 0.25
+  // seat on the lowest ground under the footprint so slopes don't leave it floating
+  let lo = groundY(x, z)
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * Math.PI * 2
+    lo = Math.min(lo, groundY(x + Math.cos(a) * s * 0.75, z + Math.sin(a) * s * 0.75))
+  }
+  const y = lo - s * 0.12
   const sc = new Vector3(s * c.b.rand(0.8, 1.3), s * c.b.rand(0.7, 1.1), s * c.b.rand(0.8, 1.3))
   const ry = c.b.rand(0, 6.28)
   if (solid) {

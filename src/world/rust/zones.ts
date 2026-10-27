@@ -6,7 +6,7 @@
  *   Pipeline (-18,8)        TOWER (0,0)        Red Containers (22,8)
  *   Loading Dock (-24,27)   Control Room (4,23)   Generators (22,24)
  */
-import { Vector3 } from 'three'
+import { CylinderGeometry, ExtrudeGeometry, LatheGeometry, Shape, Vector2, Vector3 } from 'three'
 import type { MatKey } from '../materials'
 import {
   angle,
@@ -175,7 +175,7 @@ function loadingDock(c: Ctx) {
   const rl = 5.2
   b.frame(x1 + rl / 2, 0, (z0 + z1) / 2 - 1.2, 0, () => {
     const ang = Math.atan2(top, rl)
-    b.box('concrete', Math.hypot(rl, top) + 0.1, 0.5, 3.4, 0, top / 2 - 0.22, 0, { rz: ang })
+    b.box('concrete', Math.hypot(rl, top) + 0.1, 0.5, 3.4, 0, top / 2 - 0.22, 0, { rz: -ang })
   })
   // steps on the north face
   for (let i = 0; i < 4; i++) b.box('concrete', 1.6, (i + 1) * 0.3, 0.32, -27.5, ((i + 1) * 0.3) / 2, z0 - 0.16 - (3 - i) * 0.32)
@@ -197,10 +197,13 @@ function loadingDock(c: Ctx) {
       })
       b.colBox(x + 1.5, top / 2 + 0.6, wz, 3.0, top + 1.0, 0.2, 'metal')
     } else {
-      corrugated(b, 'tin', 3.0, wh + top + 0.4, x + 1.5, (wh + top + 0.4) / 2 - 0.4, wz, { col: 'metal' })
+      const m = (['tin', 'tin', 'tinTan', 'tin', 'rust', 'tinTan'] as MatKey[])[Math.floor(((x + 40) / 3) % 6)]!
+      corrugated(b, m, 3.0, wh + top + 0.4, x + 1.5, (wh + top + 0.4) / 2 - 0.4, wz, { col: 'metal' })
     }
     ibeam(b, 'rust', V(x, -0.2, wz + 0.2), V(x, wh + top, wz + 0.2), 0.2, 0.2)
   }
+  // girts across the cladding
+  for (const gy of [top + 2.6, top + 5.2]) ibeam(b, 'rustDark', V(x0 - 2, gy, wz - 0.12), V(x1 + 0.2, gy, wz - 0.12), 0.08, 0.14, { col: false })
   // warehouse roof edge
   ibeam(b, 'rustDark', V(x0 - 2, wh + top, wz + 0.2), V(x1 + 0.2, wh + top, wz + 0.2), 0.15, 0.3, { col: false })
   corrugated(b, 'tin', x1 - x0 + 2.2, 8, cx - 1, wh + top + 0.6, wz + 4.2, { rx: -Math.PI / 2 + 0.15, col: false })
@@ -499,15 +502,21 @@ function fuelTank(c: Ctx, x: number, z: number, ry: number, r = 1.35, len = 7.2)
   c.fp.push({ x, z, w: len + 0.6, d: r * 2, ry, kind: 'tank' })
   b.frame(x, cy, z, ry, () => {
     b.cyl('tank', r, r, len, 'x', 0, 0, 0, 28, { col: false })
-    // dished ends
+    // dished ends (lathe, proper UVs)
     for (const sx of [-1, 1]) {
-      b.frame(sx * len / 2, 0, 0, sx > 0 ? -Math.PI / 2 : Math.PI / 2, () => {
-        b.cyl('tank', r * 0.75, r, 0.35, 'z', 0, 0, 0.17, 28, { col: false })
-        b.cyl('tank', r * 0.35, r * 0.75, 0.15, 'z', 0, 0, 0.42, 28, { col: false })
-      })
+      const prof: Vector2[] = []
+      for (let i = 0; i <= 8; i++) {
+        const a = (i / 8) * (Math.PI / 2)
+        prof.push(new Vector2(Math.cos(a) * r, Math.sin(a) * r * 0.42))
+      }
+      const g = new LatheGeometry(prof, 28)
+      const uv = g.getAttribute('uv')
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) * Math.PI * 2 * r) / 2, (uv.getY(i) * r) / 2)
+      b.geo('tank', g, (sx * len) / 2, 0, 0, { rz: -sx * (Math.PI / 2), keepUV: true, col: false })
+      g.dispose()
     }
-    // collision: coarse cylinder
-    b.cyl('tank', r, r, len + 0.5, 'x', 0, 0, 0, 10, { col: 'metal' })
+    // collision: coarse cylinder (invisible)
+    b.colGeo(new CylinderGeometry(r, r, len + 0.5, 10).rotateZ(Math.PI / 2), 0, 0, 0, 'metal')
     // bands, manway, vent
     for (const bx of [-len * 0.35, 0, len * 0.35]) b.cyl('rustDark', r + 0.02, r + 0.02, 0.1, 'x', bx, 0, 0, 28, { col: false })
     b.cyl('rustDark', 0.32, 0.32, 0.25, 'y', len * 0.2, r + 0.05, 0, 14, { col: false })
@@ -553,9 +562,17 @@ function fuelDepot(c: Ctx) {
   bund(20.2, -14.0, 20.2, -10.0)
   bund(20.2, -7.4, 20.2, -3.5)
   // pumps & hose
-  b.frame(21.2, groundY(21.2, -2.0), -2.0, 0.2, () => {
-    b.box('pipeYellow', 0.9, 1.3, 0.6, 0, 0.65, 0)
-    b.box('black', 0.6, 0.3, 0.05, 0, 1.0, 0.31, { col: false })
+  b.frame(21.4, groundY(21.4, -2.0), -2.0, 0.2, () => {
+    // transfer pump skid: base, motor, pump volute, piping
+    b.box('concrete', 2.0, 0.25, 1.0, 0, 0.05, 0)
+    ibeam(b, 'rustDark', V(-0.9, 0.25, -0.3), V(0.9, 0.25, -0.3), 0.1, 0.14, { col: false })
+    ibeam(b, 'rustDark', V(-0.9, 0.25, 0.3), V(0.9, 0.25, 0.3), 0.1, 0.14, { col: false })
+    b.cyl('pipeYellow', 0.28, 0.28, 0.9, 'x', -0.35, 0.65, 0, 16)
+    b.cyl('black', 0.3, 0.3, 0.08, 'x', -0.82, 0.65, 0, 16, { col: false })
+    b.cyl('pipeYellow', 0.3, 0.3, 0.25, 'z', 0.45, 0.62, 0, 16)
+    b.rod('pipeGrey', V(0.45, 0.62, 0), V(0.45, 1.4, 0), 0.08, 10, { col: false })
+    b.rod('pipeGrey', V(0.45, 1.4, 0), V(0.45, 1.4, -1.6), 0.08, 10, { col: false })
+    b.box('pipeGrey', 0.3, 0.4, 0.2, -0.4, 1.15, 0.0, { col: false })
   })
   pipeline(c, [V(28.8, 0.5, -9.6), V(31.5, 0.5, -9.6), V(31.5, 0.5, 4.5)], 0.18, 'pipeGrey', { every: 3, flanges: false })
   valve(c, 29.6, -8.4, 0.5, 0.9)
@@ -753,30 +770,66 @@ function maintenance(c: Ctx) {
   crate(c, -21.7, groundY(-21.7, -11.2), -11.2, 0.3, 1.1)
 }
 
-/** Burnt-out pickup truck — iconic MW2 cover. */
+/** Abandoned pickup truck — iconic MW2 cover. Extruded side profile, open bed, flat tyres. */
 function pickup(c: Ctx, x: number, z: number, ry: number) {
   const b = c.b
   const gy = groundY(x, z)
   c.fp.push({ x, z, w: 5.2, d: 2.0, ry, kind: 'low' })
+  const W = 1.72
   b.frame(x, gy, z, ry, () => {
-    // chassis & bed
-    b.box('rustDark', 5.0, 0.3, 1.6, 0, 0.55, 0, { col: false })
-    b.box('rust', 2.2, 0.55, 1.8, -1.35, 0.98, 0, { col: false })
-    b.box('rustDark', 2.1, 0.05, 1.7, -1.35, 0.72, 0, { col: false })
-    for (const sz of [-1, 1]) b.box('rust', 2.2, 0.5, 0.05, -1.35, 1.0, sz * 0.88, { col: false })
-    // cab
-    b.box('rust', 1.6, 0.75, 1.8, 0.6, 1.05, 0, { col: false })
-    b.box('rust', 1.2, 0.6, 1.7, 0.45, 1.72, 0, { col: false, rz: 0.0 })
-    b.box('black', 0.05, 0.5, 1.5, 1.07, 1.72, 0, { col: false, rz: -0.35 })
-    // hood
-    b.box('rust', 1.3, 0.55, 1.8, 2.0, 0.98, 0, { col: false, rz: -0.05 })
-    // wheels (rims, tyres burnt off on one side)
-    for (const wx of [-1.5, 1.7]) {
-      for (const sz of [-1, 1]) b.cyl(sz > 0 ? 'rubber' : 'rustDark', 0.38, 0.38, 0.25, 'z', wx, 0.36, sz * 0.82, 12, { col: false, rz: sz < 0 && wx < 0 ? 0.0 : 0 })
+    // cab + hood profile (x forward, y up), extruded across the width
+    const cab = new Shape()
+    cab.moveTo(-0.5, 0.62)
+    cab.lineTo(-0.5, 1.92)
+    cab.lineTo(0.45, 1.95)
+    cab.lineTo(1.05, 1.38)
+    cab.lineTo(2.35, 1.3)
+    cab.lineTo(2.62, 1.12)
+    cab.lineTo(2.62, 0.62)
+    cab.closePath()
+    const cg = new ExtrudeGeometry(cab, { depth: W, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.05, bevelSegments: 2, curveSegments: 2 })
+    cg.translate(0, 0, -W / 2)
+    b.geo('pipeGrey', cg, 0, 0, 0, { col: false })
+    cg.dispose()
+    // glass (dark, cracked): side windows + windshield + rear window
+    const win = new Shape()
+    win.moveTo(-0.38, 1.38)
+    win.lineTo(-0.38, 1.82)
+    win.lineTo(0.42, 1.84)
+    win.lineTo(0.86, 1.4)
+    win.closePath()
+    const wg = new ExtrudeGeometry(win, { depth: W + 0.14, bevelEnabled: false })
+    wg.translate(0, 0, -(W + 0.14) / 2)
+    b.geo('black', wg, 0, 0, 0, { col: false })
+    wg.dispose()
+    b.box('black', 0.02, 0.5, W - 0.2, 0.76, 1.66, 0, { rz: -0.76, col: false })
+    b.box('black', 0.02, 0.36, W - 0.3, -0.56, 1.62, 0, { col: false })
+    // grille, bumpers, lights
+    b.box('rustDark', 0.06, 0.4, W - 0.2, 2.68, 0.9, 0, { col: false })
+    b.box('rustDark', 0.16, 0.18, W + 0.1, 2.75, 0.55, 0, { col: false })
+    b.box('rustDark', 0.12, 0.16, W + 0.05, -2.62, 0.6, 0, { col: false })
+    for (const sz of [-0.68, 0.68]) b.box('lamp', 0.03, 0.1, 0.18, 2.7, 1.05, sz, { col: false })
+    // bed
+    b.box('pipeGrey', 2.1, 0.06, W, -1.58, 0.75, 0, { col: false })
+    for (const sz of [-1, 1]) b.box('pipeGrey', 2.1, 0.5, 0.06, -1.58, 1.0, sz * (W / 2 - 0.03), { col: false })
+    b.box('pipeGrey', 0.06, 0.5, W, -2.6, 1.0, 0, { col: false, rz: 0.08 })
+    b.box('pipeGrey', 0.06, 0.55, W, -0.56, 1.0, 0, { col: false })
+    // junk in the bed
+    b.cyl('rust', 0.29, 0.29, 0.88, 'y', -1.9, 1.2, 0.35, 12, { col: false })
+    b.box('woodDark', 1.3, 0.1, 0.9, -1.4, 0.85, -0.3, { ry: 0.2, col: false })
+    // chassis + wheels (front-left tyre burnt off: rim on the ground)
+    b.box('black', 4.6, 0.25, 1.1, 0, 0.45, 0, { col: false })
+    for (const [wx, sz, flat] of [[-1.6, -1, false], [-1.6, 1, false], [1.75, -1, true], [1.75, 1, false]] as [number, number, boolean][]) {
+      const zz = sz * (W / 2 - 0.08)
+      if (flat) b.cyl('rustDark', 0.25, 0.25, 0.2, 'z', wx, 0.25, zz, 12, { col: false })
+      else {
+        b.cyl('rubber', 0.38, 0.38, 0.26, 'z', wx, 0.37, zz, 16, { col: false })
+        b.cyl('rustDark', 0.2, 0.2, 0.28, 'z', wx, 0.37, zz, 10, { col: false })
+      }
     }
-    b.colBox(0.2, 0.95, 0, 5.0, 1.3, 1.85, 'metal')
-    b.colBox(0.45, 1.75, 0, 1.2, 0.7, 1.7, 'metal')
-  }, 0, -0.04)
+    b.colBox(-0.05, 0.85, 0, 5.3, 1.0, W + 0.1, 'metal')
+    b.colBox(0.2, 1.6, 0, 1.4, 0.7, W, 'metal')
+  }, 0, 0.035)
 }
 
 // ─── yard filler: cover pieces between zones, perimeter dressing ─────────
