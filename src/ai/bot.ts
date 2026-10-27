@@ -137,6 +137,7 @@ export class Bot implements Actor {
   private scanT = 0
   private scanYaw = 0
   private lingerT = 0
+  private fleeUntil = 0
 
   // Brain
   private mode: Mode = 'hunt'
@@ -330,6 +331,7 @@ export class Bot implements Actor {
     this.hasGoal = false
     this.campNode = -1
     this.lingerT = 0
+    this.fleeUntil = 0
     this.pathLen = 0
     this.goalT = 0
     this.thinkT = 0.1 + Math.random() * 0.3
@@ -499,6 +501,34 @@ export class Bot implements Actor {
     }
   }
 
+  /** A cooking frag landed nearby: run (perceived only within ~8 m, with a short delay). */
+  fleeGrenade(pos: Vector3) {
+    if (this.ladder || this.mantleT >= 0) return
+    const dx = this.position.x - pos.x
+    const dz = this.position.z - pos.z
+    const d = Math.hypot(dx, dz)
+    if (d > 8 || Math.abs(this.position.y - pos.y) > 3 || Math.random() > 0.35 + this.skill * 0.6) return
+    // Best node 7-11 m away from the grenade.
+    let best = -1
+    let bestS = -Infinity
+    for (let i = 0; i < 16; i++) {
+      const k = this.nav.randomNear(this.position.x + (dx / (d || 1)) * 5, this.position.z + (dz / (d || 1)) * 5, 6)
+      if (k < 0) continue
+      const away = Math.hypot(this.nav.px[k]! - pos.x, this.nav.pz[k]! - pos.z)
+      const s = away - Math.hypot(this.nav.px[k]! - this.position.x, this.nav.pz[k]! - this.position.z) * 0.3 - Math.abs(this.nav.py[k]! - this.position.y) * 2
+      if (s > bestS) {
+        bestS = s
+        best = k
+      }
+    }
+    if (best < 0) return
+    this.mode = 'retreat'
+    this.retreatUntil = this.game.time + 2.5
+    this.fleeUntil = this.retreatUntil
+    this.wantStance = 0
+    this.setGoalNode(best)
+  }
+
   uavPing() {
     const now = this.game.time
     for (const m of this.memories) {
@@ -543,6 +573,7 @@ export class Bot implements Actor {
     }
 
     const hurt = this.health < 48
+    if (now < this.fleeUntil) return
     if (this.target) {
       this.threatPos.copy(this.target.position)
       // Hurt and outgunned: break contact toward cover.

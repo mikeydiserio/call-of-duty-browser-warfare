@@ -40,6 +40,9 @@ export class BotManager {
         if (b.position.distanceToSquared(position) < range * range) b.hear(actor, position, 0.3)
       }
     })
+    ev.on('grenade:warning', ({ position }) => {
+      for (const b of this.list) if (b.alive) b.fleeGrenade(position)
+    })
     ev.on('actor:damaged', (info) => {
       if (info.victim instanceof Bot) info.victim.onDamaged(info)
     })
