@@ -15,7 +15,8 @@ const STREAK_GLOW = 0
 const STREAK_SHARD = 1
 const STREAK_CONE = 2
 
-const LIGHTS = 4
+/** Pooled flash lights (constant count so materials never recompile). */
+const LIGHTS = 3
 const _o = new Vector3()
 const _d = new Vector3()
 const _n = new Vector3()
@@ -817,6 +818,7 @@ export class Effects {
     }
     // a breath of gun smoke
     if (camD < 40) {
+      this.lightAt(origin)
       s.reset()
       s.x = origin.x + dir.x * 0.2
       s.y = origin.y + dir.y * 0.2
