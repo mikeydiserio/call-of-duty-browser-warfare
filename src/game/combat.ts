@@ -46,6 +46,7 @@ export class Combat {
     tracer = true,
     tracerFrom?: Vector3,
   ): { actor: Actor | null; world: WorldHit | null; point: Vector3 } {
+    this.game.net?.onShot(shooter, weaponId, origin, dir) // NET: clients forward fire requests to the host
     const def = WEAPONS[weaponId]
     const world = this.game.collision
     let remaining = MAX_RANGE
@@ -106,6 +107,7 @@ export class Combat {
 
   /** Knife: short cone in front of attacker. Returns true if it connected. */
   melee(attacker: Actor): boolean {
+    this.game.net?.onMelee(attacker) // NET
     attacker.getEyePosition(_eye)
     const fwd = new Vector3(-Math.sin(attacker.yaw), 0, -Math.cos(attacker.yaw))
     let best: Actor | null = null
@@ -140,10 +142,12 @@ export class Combat {
     this.game.render.scene.add(mesh)
     this.grenades.push({ owner, position: origin.clone(), velocity: velocity.clone(), fuse: fuseRemaining, mesh, rest: false, warned: false })
     this.game.events.emit('grenade:throw', { actor: owner })
+    this.game.net?.onGrenade(owner, origin, velocity, fuseRemaining) // NET: replicate / request
   }
 
   /** Radial damage with line-of-sight occlusion. */
   explosion(position: Vector3, owner: Actor | null, weaponId: WeaponId = 'frag') {
+    if (this.game.netRole === 'client') return // NET: the host resolves explosions
     const def = WEAPONS[weaponId]
     this.game.events.emit('grenade:explode', { position: position.clone(), owner })
     for (const a of this.game.actors) {
@@ -166,6 +170,7 @@ export class Combat {
   applyDamage(info: DamageInfo) {
     const v = info.victim
     if (!v.alive || info.amount <= 0) return
+    if (this.game.netRole === 'client') return // NET: damage is host-authoritative
     if (this.game.mode.phase !== 'playing') return
     v.health -= info.amount
     v.timeSinceDamage = 0
@@ -283,7 +288,9 @@ export class Combat {
   }
 
   private stoppingPower(shooter: Actor): number {
-    return shooter.isPlayer && this.game.loadout.perks.includes('stoppingPower') ? 1.4 : 1
+    // NET: remote humans carry their own perks
+    const perks = shooter.isPlayer ? this.game.loadout.perks : this.game.net?.perksOf(shooter)
+    return perks?.includes('stoppingPower') ? 1.4 : 1
   }
 
   private raycastActors(shooter: Actor, origin: Vector3, dir: Vector3, maxD: number): { actor: Actor; hit: ActorHit } | null {

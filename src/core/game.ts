@@ -9,7 +9,8 @@ import { GameRenderer } from '../render/renderer'
 import { UI } from '../ui/ui'
 import { CollisionWorld } from '../world/collision'
 import { buildRustMap } from '../world/rust/map'
-import { type LobbyService, OfflineLobby } from '../net/lobby'
+import { createLobby, type NetHooks } from '../net'
+import type { LobbyService } from '../net/lobby'
 import { CONFIG } from './config'
 import { EventBus } from './events'
 import { Input } from './input'
@@ -54,6 +55,8 @@ export class Game {
   match: MatchSettings = defaultMatch('tdm')
   /** Network role; 'offline' for solo vs bots. Set by the net layer (src/net). */
   netRole: NetRole = 'offline'
+  /** NET: online match hooks (src/net), null when offline. */
+  net: NetHooks | null = null
   /** Gameplay clock (seconds), frozen while paused. */
   time = 0
   paused = false
@@ -91,7 +94,7 @@ export class Game {
     this.bots = new BotManager(this)
     this.fx = new Effects(this)
     this.audio = new AudioEngine(this)
-    this.lobby = new OfflineLobby(this)
+    this.lobby = createLobby(this) // NET: OnlineLobby when configured, else OfflineLobby
     this.ui = new UI(this, uiRoot)
 
     this.applySettings()
@@ -118,8 +121,9 @@ export class Game {
     this.combat.clearGrenades()
     this.bots.clear()
     this.player.setLoadout(loadout)
-    const bots = this.bots.createTeams(this.player.team)
-    this.actors = [this.player, ...bots]
+    // NET: clients mirror the host's actors instead of simulating bots
+    const bots = this.netRole === 'client' ? [] : this.bots.createTeams(this.player.team)
+    this.actors = this.net ? this.net.matchActors(bots) : [this.player, ...bots]
     this.time = 0
     this.paused = false
     this.mode.begin()
@@ -177,7 +181,8 @@ export class Game {
     this.input.beginFrame()
     const phase = this.mode.phase
     const inMatch = phase === 'intro' || phase === 'playing' || phase === 'ended'
-    const dt = this.paused ? 0 : rawDt
+    // NET: online matches keep simulating behind the pause menu
+    const dt = this.paused && this.netRole === 'offline' ? 0 : rawDt
 
     if (this.input.state.pausePressed && inMatch && !this.paused && phase !== 'ended') {
       this.input.unlock()
@@ -187,9 +192,9 @@ export class Game {
     if (inMatch) {
       if (dt > 0) {
         this.time += dt
-        this.mode.update(dt)
+        if (this.netRole !== 'client') this.mode.update(dt) // NET: clients mirror the host's mode
         this.player.update(dt)
-        this.bots.update(dt)
+        if (this.netRole !== 'client') this.bots.update(dt)
         this.combat.update(dt)
       }
       if (phase === 'ended') {
@@ -203,6 +208,7 @@ export class Game {
       this.updateMenuCamera(rawDt)
     }
 
+    this.net?.update(rawDt) // NET: replication
     this.fx.update(dt)
     this.audio.update(rawDt)
     this.ui.update(rawDt)
