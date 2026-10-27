@@ -143,12 +143,15 @@ export function noiseBurst(
   if (n <= 0) return
   const dec = Math.exp(-1 / (tau * SR))
   const att = Math.max(1, attack * SR)
+  // short release so a burst cut off at `dur` never ends on a step (click)
+  const rel = Math.max(1, Math.min(n >> 2, Math.round(0.006 * SR)))
   let env = 1
   const nf = filters.length
   for (let i = 0; i < n; i++) {
     let x = rng.signed()
     for (let k = 0; k < nf; k++) x = filters[k]!.process(x)
-    d[s0 + i]! += x * env * (i < att ? i / att : 1) * gain
+    const r = n - i < rel ? (n - i) / rel : 1
+    d[s0 + i]! += x * env * (i < att ? i / att : 1) * r * gain
     env *= dec
   }
 }
@@ -198,6 +201,7 @@ export function pitchSine(
   const fd = Math.exp(-1 / (fTau * SR))
   const ad = Math.exp(-1 / (aTau * SR))
   const att = Math.max(1, attack * SR)
+  const rel = Math.max(1, Math.min(n >> 2, Math.round(0.012 * SR)))
   let fe = 1
   let ae = 1
   let ph = 0
@@ -205,7 +209,8 @@ export function pitchSine(
     const f = f1 + (f0 - f1) * fe
     ph += (TWO_PI * f) / SR
     const s = fsin(ph) + harm * fsin(ph * 2)
-    d[s0 + i]! += s * ae * (i < att ? i / att : 1) * gain
+    const r = n - i < rel ? (n - i) / rel : 1
+    d[s0 + i]! += s * ae * (i < att ? i / att : 1) * r * gain
     fe *= fd
     ae *= ad
   }

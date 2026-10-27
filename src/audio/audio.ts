@@ -28,6 +28,8 @@ const FAR_SHOT_DISTANCE = 35
 const IMPACT_MAX_DISTANCE = 40
 const STEP_MAX_DISTANCE = 22
 const GEN_RATE = 44100
+/** Menu score level into the music bus (the stems are mixed with headroom). */
+const MENU_MUSIC_GAIN = 1.6
 
 const _fwd = new Vector3()
 const _up = new Vector3()
@@ -583,10 +585,9 @@ export class AudioEngine {
     const now = ctx.currentTime
     if (this.voices.length >= MAX_VOICES) {
       let worst: Voice | null = null
-      for (const v of this.voices) if (!v.dead && (!worst || v.score < worst.score)) worst = v
-      if (worst && worst.score >= score) return null
-      if (worst) this.kill(worst, now)
-      else this.voices = this.voices.filter((v) => !v.dead)
+      for (const v of this.voices) if (!worst || v.score < worst.score) worst = v
+      if (!worst || worst.score >= score) return null
+      this.kill(worst, now)
     }
 
     const pitch = o.pitch ?? 0.04
@@ -679,7 +680,9 @@ export class AudioEngine {
     } catch {
       /* not started yet */
     }
-    v.score = -1e9
+    // Leave the active list now so the slot is free; nodes are released on 'ended'.
+    const i = this.voices.indexOf(v)
+    if (i >= 0) this.voices.splice(i, 1)
   }
 
   // ─── Loops: wind, breath ──────────────────────────────────────────────────
@@ -737,7 +740,7 @@ export class AudioEngine {
       }
       const gn = c.createGain()
       gn.gain.value = 0
-      gn.gain.setTargetAtTime(1, now, 1.1)
+      gn.gain.setTargetAtTime(MENU_MUSIC_GAIN, now, 1.1)
       gn.connect(g.musicIn)
       // Stems share length and start time, so they stay sample-locked across loops.
       const when = now + 0.05

@@ -79,50 +79,50 @@ interface GunProfile {
 const GUNS: Record<GunId, GunProfile> = {
   acr: {
     click: 1, crackF: 3400, crackTau: 0.011, crackGain: 1.0, sizzle: 0.5,
-    bodyF: 1500, bodyTau: 0.05, bodyGain: 1.9, thumpF0: 150, thumpF1: 58, thumpFTau: 0.03, thumpTau: 0.085, thumpGain: 0.85,
+    bodyF: 1500, bodyTau: 0.05, bodyGain: 1.9, thumpF0: 150, thumpF1: 62, thumpFTau: 0.025, thumpTau: 0.03, thumpGain: 0.9,
     tailTau: 0.24, tailF: 1900, tailGain: 0.3, drive: 1.7,
     echo: [[0.11, 0.24, 2200], [0.26, 0.13, 1500]], len: 1.25, farLP: 650, action: 'rifle', peak: 0.95,
   },
   m4a1: {
     click: 1, crackF: 4300, crackTau: 0.008, crackGain: 1.05, sizzle: 0.6,
-    bodyF: 1900, bodyTau: 0.04, bodyGain: 1.7, thumpF0: 135, thumpF1: 62, thumpFTau: 0.028, thumpTau: 0.07, thumpGain: 0.6,
+    bodyF: 1900, bodyTau: 0.04, bodyGain: 1.7, thumpF0: 140, thumpF1: 66, thumpFTau: 0.022, thumpTau: 0.026, thumpGain: 0.75,
     tailTau: 0.2, tailF: 2200, tailGain: 0.28, drive: 1.45,
     echo: [[0.1, 0.22, 2600], [0.24, 0.11, 1800]], len: 1.15, farLP: 760, action: 'rifle', peak: 0.93,
   },
   ak47: {
     click: 1, crackF: 2500, crackTau: 0.014, crackGain: 1.05, sizzle: 0.35,
-    bodyF: 1100, bodyTau: 0.075, bodyGain: 2.3, thumpF0: 120, thumpF1: 46, thumpFTau: 0.035, thumpTau: 0.115, thumpGain: 1.0,
+    bodyF: 1100, bodyTau: 0.075, bodyGain: 2.3, thumpF0: 125, thumpF1: 55, thumpFTau: 0.03, thumpTau: 0.036, thumpGain: 1.0,
     tailTau: 0.32, tailF: 1500, tailGain: 0.36, drive: 2.3,
     echo: [[0.12, 0.28, 1900], [0.29, 0.16, 1300], [0.5, 0.08, 900]], len: 1.45, farLP: 560, action: 'rifle', peak: 0.97,
   },
   ump45: {
     click: 0.8, crackF: 2200, crackTau: 0.008, crackGain: 0.7, sizzle: 0.25,
-    bodyF: 900, bodyTau: 0.055, bodyGain: 2.2, thumpF0: 110, thumpF1: 60, thumpFTau: 0.03, thumpTau: 0.06, thumpGain: 0.6,
+    bodyF: 900, bodyTau: 0.055, bodyGain: 2.2, thumpF0: 115, thumpF1: 62, thumpFTau: 0.025, thumpTau: 0.028, thumpGain: 0.75,
     tailTau: 0.15, tailF: 1400, tailGain: 0.22, drive: 1.35,
     echo: [[0.09, 0.15, 1600]], len: 0.9, farLP: 520, action: 'smg', peak: 0.88,
   },
   intervention: {
     click: 1.3, crackF: 5200, crackTau: 0.02, crackGain: 1.3, sizzle: 0.9,
-    bodyF: 700, bodyTau: 0.13, bodyGain: 3.0, thumpF0: 95, thumpF1: 30, thumpFTau: 0.06, thumpTau: 0.3, thumpGain: 1.4,
+    bodyF: 700, bodyTau: 0.13, bodyGain: 3.0, thumpF0: 105, thumpF1: 45, thumpFTau: 0.05, thumpTau: 0.07, thumpGain: 1.4,
     tailTau: 0.75, tailF: 1500, tailGain: 0.5, drive: 2.5,
     echo: [[0.14, 0.38, 2000], [0.33, 0.3, 1400], [0.62, 0.22, 1000], [1.0, 0.15, 800], [1.5, 0.09, 600], [2.1, 0.05, 500]],
     len: 3.4, farLP: 420, action: 'bolt', peak: 1.0,
   },
   spas12: {
     click: 0.8, crackF: 1800, crackTau: 0.015, crackGain: 0.75, sizzle: 0.3,
-    bodyF: 650, bodyTau: 0.1, bodyGain: 3.0, thumpF0: 90, thumpF1: 38, thumpFTau: 0.05, thumpTau: 0.17, thumpGain: 1.3,
+    bodyF: 650, bodyTau: 0.1, bodyGain: 3.0, thumpF0: 95, thumpF1: 48, thumpFTau: 0.04, thumpTau: 0.055, thumpGain: 1.35,
     tailTau: 0.38, tailF: 1000, tailGain: 0.4, drive: 2.1,
     echo: [[0.1, 0.26, 1400], [0.25, 0.15, 1000], [0.44, 0.07, 800]], len: 1.7, farLP: 380, action: 'pump', peak: 0.98,
   },
   usp45: {
     click: 1.1, crackF: 4800, crackTau: 0.007, crackGain: 1.15, sizzle: 0.55,
-    bodyF: 1700, bodyTau: 0.026, bodyGain: 1.5, thumpF0: 170, thumpF1: 95, thumpFTau: 0.03, thumpTau: 0.035, thumpGain: 0.42,
+    bodyF: 1700, bodyTau: 0.026, bodyGain: 1.5, thumpF0: 175, thumpF1: 95, thumpFTau: 0.02, thumpTau: 0.018, thumpGain: 0.5,
     tailTau: 0.12, tailF: 2600, tailGain: 0.2, drive: 1.25,
     echo: [[0.08, 0.17, 2800], [0.2, 0.07, 1800]], len: 0.85, farLP: 900, action: 'pistol', peak: 0.88,
   },
   deagle: {
     click: 1.2, crackF: 3300, crackTau: 0.013, crackGain: 1.2, sizzle: 0.6,
-    bodyF: 1100, bodyTau: 0.065, bodyGain: 2.6, thumpF0: 105, thumpF1: 48, thumpFTau: 0.035, thumpTau: 0.115, thumpGain: 1.15,
+    bodyF: 1100, bodyTau: 0.065, bodyGain: 2.6, thumpF0: 110, thumpF1: 52, thumpFTau: 0.03, thumpTau: 0.04, thumpGain: 1.2,
     tailTau: 0.3, tailF: 1700, tailGain: 0.34, drive: 2.0,
     echo: [[0.1, 0.32, 2200], [0.24, 0.18, 1600], [0.45, 0.1, 1100]], len: 1.8, farLP: 600, action: 'deagle', peak: 0.97,
   },
@@ -133,20 +133,60 @@ function metalClick(d: Float32Array, t0: number, rng: Rng, level: number, f = 24
   ring(d, t0, [f * rng.jit(0.05), f * 1.7 * rng.jit(0.05), f * 2.6], [0.014, 0.009, 0.006], 0.35 * level)
 }
 
-function gunMain(P: GunProfile, rng: Rng): Float32Array {
+/** Muzzle-blast pressure wave: a sharp positive spike followed by a longer rarefaction lobe (N-wave). */
+function blastPulse(d: Float32Array, gain: number, width: number) {
+  const n1 = Math.max(2, samples(width))
+  const n2 = Math.max(4, samples(width * 4.5))
+  for (let i = 0; i < n1 && i < d.length; i++) d[i]! += gain * fsin((Math.PI * i) / n1)
+  for (let i = 0; i < n2 && n1 + i < d.length; i++) d[n1 + i]! -= gain * 0.42 * fsin((Math.PI * i) / n2)
+}
+
+/** Noise whose amplitude is roughened by a fast random envelope — expanding gas crackle, not smooth hiss. */
+function gritNoise(d: Float32Array, t0: number, dur: number, tau: number, gain: number, rng: Rng, filters: Biquad[], grit: number) {
+  const s0 = samples(t0)
+  const n = Math.min(samples(dur), d.length - s0)
+  const dec = Math.exp(-1 / (tau * SR))
+  const am = lp(320)
+  const att = Math.max(1, 0.0003 * SR)
+  let env = 1
+  for (let i = 0; i < n; i++) {
+    let x = rng.signed()
+    for (let k = 0; k < filters.length; k++) x = filters[k]!.process(x)
+    const m = 1 - grit + grit * Math.min(2.2, Math.abs(am.process(rng.signed())) * 9)
+    d[s0 + i]! += x * env * m * gain * (i < att ? i / att : 1)
+    env *= dec
+  }
+}
+
+/** Blast only (no low thump) — also the source for slap-back echoes, so they don't re-boom. */
+function gunBlast(P: GunProfile, rng: Rng): Float32Array {
   const d = new Float32Array(samples(P.len))
-  noiseBurst(d, 0, 0.005, 0.0007, P.click, rng, [hp(900)], 0.00004)
-  noiseBurst(d, 0, 0.1, P.crackTau * rng.jit(0.1), P.crackGain, rng, [bp(P.crackF * rng.jit(0.08), 0.9), hp(1100)], 0.00006)
-  noiseBurst(d, 0, 0.035, 0.005, P.sizzle, rng, [hp(5500)], 0.00004)
-  noiseBurst(d, 0.0003, 0.7, P.bodyTau * rng.jit(0.1), P.bodyGain, rng, [lp(P.bodyF * rng.jit(0.08), 0.8), lp(P.bodyF * 1.6, 0.6)])
-  noiseBurst(d, 0.0005, 0.3, P.bodyTau * 0.6, P.bodyGain * 0.55, rng, [bp(P.bodyF * 0.55, 1.4)])
-  pitchSine(d, 0, Math.min(P.len, 1.2), P.thumpF0 * rng.jit(0.06), P.thumpF1, P.thumpFTau, P.thumpTau * rng.jit(0.08), P.thumpGain, 0.0015, 0.25)
-  // normalise then saturate so every weapon is dense but not clipping-flat.
+  // 1. transient: pressure N-wave + broadband crack + air sizzle
+  blastPulse(d, 1.6 * P.click, 0.00022 + 0.00012 * (P.bodyTau / 0.05))
+  noiseBurst(d, 0, 0.005, 0.0008, 0.9 * P.click, rng, [hp(900)], 0.00002)
+  noiseBurst(d, 0, 0.1, P.crackTau * rng.jit(0.1), P.crackGain, rng, [bp(P.crackF * rng.jit(0.08), 0.8), hp(1100)], 0.00003)
+  noiseBurst(d, 0, 0.035, 0.004, P.sizzle, rng, [hp(5500)], 0.00003)
+  // 2. body: gritty, calibre-shaped gas blast
+  gritNoise(d, 0.0003, 0.6, P.bodyTau * rng.jit(0.1), P.bodyGain, rng, [lp(P.bodyF * rng.jit(0.08), 0.8), hp(120)], 0.55)
+  gritNoise(d, 0.0005, 0.3, P.bodyTau * 0.55, P.bodyGain * 0.6, rng, [bp(P.bodyF * 0.55, 1.2)], 0.4)
+  // normalise then saturate so the blast is dense and loud; the thump is added afterwards so it
+  // keeps its natural decay instead of being flattened into a droning sine.
   let m = 0
   for (let i = 0; i < d.length; i++) m = Math.max(m, Math.abs(d[i]!))
   const g = 1 / Math.max(m, 1e-6)
   for (let i = 0; i < d.length; i++) d[i]! *= g
   saturate(d, P.drive)
+  return d
+}
+
+/** Low-end punch: short pitch-dropping kick under the blast. */
+function addThump(d: Float32Array, P: GunProfile, rng: Rng) {
+  pitchSine(d, 0, Math.min(P.len, 0.6), P.thumpF0 * rng.jit(0.06), P.thumpF1, P.thumpFTau, P.thumpTau * rng.jit(0.08), P.thumpGain * 0.62, 0.0012, 0.3)
+}
+
+function gunMain(P: GunProfile, rng: Rng): Float32Array {
+  const d = gunBlast(P, rng)
+  addThump(d, P, rng)
   return d
 }
 
@@ -223,10 +263,12 @@ function sumInto(dst: Float32Array, srcs: Float32Array[], gains: number[] | numb
 /** Non-spatial (player) shot: stereo, punchy centre, wide decorrelated tail + slap echoes from the sides. */
 function gunOwn(id: GunId, rng: Rng): [Float32Array, Float32Array] {
   const P = GUNS[id]
-  const main = gunMain(P, rng)
+  const blast = gunBlast(P, rng)
+  const echoes = gunEchoes(P, blast)
+  const main = blast.slice()
+  addThump(main, P, rng)
   const tailA = gunTail(P, rng)
   const tailB = gunTail(P, rng)
-  const echoes = gunEchoes(P, main)
   const action = gunAction(P, rng)
   const L = new Float32Array(main.length)
   const R = new Float32Array(main.length)
@@ -240,11 +282,11 @@ function gunOwn(id: GunId, rng: Rng): [Float32Array, Float32Array] {
     mixInto(L, e, k % 2 === 0 ? 1.25 : 0.45)
     mixInto(R, e, k % 2 === 0 ? 0.45 : 1.25)
   })
-  // thumpier close-mic feel: a touch of extra low end on both channels
-  const lows = main.slice(0, samples(0.35))
-  lowpassInPlace(lows, 260)
-  mixInto(L, lows, 0.35)
-  mixInto(R, lows, 0.35)
+  // close-mic weight: a touch of the blast's low-mids on both channels
+  const lows = main.slice(0, samples(0.12))
+  lowpassInPlace(lows, 300)
+  mixInto(L, lows, 0.25)
+  mixInto(R, lows, 0.25)
   return finalizeStereo(L, R, P.peak)
 }
 
@@ -257,7 +299,7 @@ function gunFar(id: GunId, rng: Rng): Float32Array {
   const boom = main.slice()
   lowpassInPlace(boom, P.farLP, 2)
   mixInto(out, boom, 1.5)
-  pitchSine(out, 0.01, 0.9, 80 * rng.jit(0.08), 36, 0.2, 0.32, 0.55)
+  pitchSine(out, 0.01, 0.9, 85 * rng.jit(0.08), 42, 0.15, 0.2, 0.3)
   // crack arrives late and dull
   const crack = main.slice(0, samples(0.15))
   const low = crack.slice()
@@ -493,13 +535,14 @@ function whizz(rng: Rng): Float32Array {
 }
 
 function hitTick(kind: 'tick' | 'head' | 'kill', rng: Rng): Float32Array {
-  const d = buf(kind === 'kill' ? 0.34 : 0.14)
+  const d = buf(kind === 'kill' ? 0.2 : 0.14)
   const pj = rng.jit(0.03)
   noiseBurst(d, 0, 0.012, 0.0028, 1.3, rng, [bp(3800 * pj, 2)], 0.00004)
   ring(d, 0, [(kind === 'head' ? 3500 : 2650) * pj, 5200 * pj, 7800], [0.014, 0.007, 0.004], 0.5, [1, 0.45, 0.2])
   if (kind === 'kill') {
-    pitchSine(d, 0.0, 0.2, 210, 85, 0.04, 0.07, 0.9)
-    noiseBurst(d, 0.0, 0.1, 0.025, 1.4, rng, [lp(700), lp(600)])
+    // heavier body: a short, dry knock under the tick (not a boom)
+    pitchSine(d, 0.0, 0.08, 260, 120, 0.012, 0.018, 0.55)
+    noiseBurst(d, 0.0, 0.05, 0.012, 1.1, rng, [bp(900, 1.2)])
     noiseBurst(d, 0.052, 0.012, 0.0028, 1.0, rng, [bp(3300, 2)], 0.00004)
     ring(d, 0.052, [2300, 4600], [0.02, 0.01], 0.35)
   }
@@ -587,6 +630,8 @@ function jumpGear(rng: Rng): Float32Array {
 function explosionNear(rng: Rng): Float32Array {
   const len = 5.2
   const d = buf(len)
+  blastPulse(d, 2.4, 0.0011)
+  noiseBurst(d, 0, 0.012, 0.0025, 2.0, rng, [hp(700)], 0.00003)
   noiseBurst(d, 0, 0.14, 0.032, 2.2, rng, [bp(1300, 0.5), hp(300)], 0.00008)
   noiseBurst(d, 0, 1.0, 0.28, 3.0, rng, [lp(1500, 0.7), lp(1000)])
   noiseBurst(d, 0.04, 0.8, 0.16, 1.7, rng, [bp(500, 0.8)])
@@ -919,10 +964,10 @@ export function buildCoreJobs(): Job[] {
     add(`gun.${id}.far`, 3, 2, (_i, r) => gunFar(id, r))
   }
   add('gun.supp', 3, 2, (_i, r) => gunSuppressed(r))
-  add('gun.dry', 2, 2, (_i, r) => dryClick(r))
-  add('hit.tick', 2, 2, (_i, r) => hitTick('tick', r))
-  add('hit.head', 2, 2, (_i, r) => hitTick('head', r))
-  add('hit.kill', 2, 2, (_i, r) => hitTick('kill', r))
+  add('gun.dry', 3, 2, (_i, r) => dryClick(r))
+  add('hit.tick', 3, 2, (_i, r) => hitTick('tick', r))
+  add('hit.head', 3, 2, (_i, r) => hitTick('head', r))
+  add('hit.kill', 3, 2, (_i, r) => hitTick('kill', r))
 
   // Bullets + movement (prio 3)
   for (const k of ['sand', 'concrete', 'metal', 'ricochet', 'wood', 'glass', 'flesh'] as const) add(`imp.${k}`, k === 'ricochet' ? 3 : 4, 3, (_i, r) => impact(k, r))
@@ -931,7 +976,7 @@ export function buildCoreJobs(): Job[] {
   for (const k of ['sand', 'concrete', 'metal', 'wood'] as const) add(`land.${k}`, 3, 3, (_i, r) => step(k, r, 2))
   add('jump', 3, 3, (_i, r) => jumpGear(r))
   add('hurt', 3, 3, (_i, r) => playerHurt(false, r))
-  add('hurt.heavy', 2, 3, (_i, r) => playerHurt(true, r))
+  add('hurt.heavy', 3, 3, (_i, r) => playerHurt(true, r))
   add('fall', 3, 3, (_i, r) => bodyFall(r))
 
   // Foley (prio 4)
@@ -939,8 +984,8 @@ export function buildCoreJobs(): Job[] {
   add('fol.magin', 3, 4, (_i, r) => magIn(r))
   add('fol.boltback', 3, 4, (_i, r) => boltBack(r))
   add('fol.boltfwd', 3, 4, (_i, r) => boltFwd(r))
-  add('fol.pumpback', 2, 4, (_i, r) => pumpBack(r))
-  add('fol.pumpfwd', 2, 4, (_i, r) => pumpFwd(r))
+  add('fol.pumpback', 3, 4, (_i, r) => pumpBack(r))
+  add('fol.pumpfwd', 3, 4, (_i, r) => pumpFwd(r))
   add('fol.shell', 3, 4, (_i, r) => shellIn(r))
   add('fol.switch', 3, 4, (_i, r) => weaponSwitch(r))
   add('fol.adson', 3, 4, (_i, r) => {
@@ -954,18 +999,18 @@ export function buildCoreJobs(): Job[] {
     return finalize(d, 0.32, 20)
   })
   add('knife.swish', 3, 4, (_i, r) => knifeSwish(r))
-  add('knife.hit', 2, 4, (_i, r) => knifeHit(r))
-  add('gren.throw', 2, 4, (_i, r) => grenadeThrow(r))
+  add('knife.hit', 3, 4, (_i, r) => knifeHit(r))
+  add('gren.throw', 3, 4, (_i, r) => grenadeThrow(r))
   for (const k of ['metal', 'concrete', 'sand', 'wood'] as const) add(`gren.bounce.${k}`, 3, 4, (_i, r) => grenadeBounce(k, r))
 
   // Big stuff (prio 5)
   add('exp.near', 3, 5, (_i, r) => explosionNear(r))
-  add('exp.far', 2, 5, (_i, r) => explosionFar(r))
+  add('exp.far', 3, 5, (_i, r) => explosionFar(r))
   add('ks.earned', 1, 5, (_i, r) => streakEarned(r))
   add('ks.used', 1, 5, (_i, r) => streakUsed(r))
   add('uav.on', 1, 5, () => uavOn())
   add('uav.off', 1, 5, () => uavOff())
-  add('radio', 2, 5, (_i, r) => radioAnnounce(r))
+  add('radio', 3, 5, (_i, r) => radioAnnounce(r))
   add('heart', 2, 5, (_i, r) => heartbeat(r))
   add('breath', 2, 5, (_i, r) => breath(r))
   add('creak', 3, 5, (_i, r) => creak(r))
