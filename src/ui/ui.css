@@ -117,7 +117,6 @@
   position: absolute;
   inset: 0;
   background: repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.035) 0 1px, rgba(0, 0, 0, 0) 1px 3px);
-  mix-blend-mode: overlay;
 }
 .menu-bg::after {
   /* vignette + olive tint */
@@ -249,7 +248,6 @@
   background: linear-gradient(180deg, var(--panel-hi), var(--panel));
   border: 1px solid var(--line);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(2px);
 }
 .panel::before {
   /* corner ticks */
@@ -917,7 +915,7 @@
   text-align: right;
   color: var(--olive-hi);
 }
-.slider {
+.orow-ctl > .slider {
   position: relative;
   height: 10px;
   margin: 0 30px 0 0;
@@ -925,7 +923,7 @@
   border: 1px solid var(--line-hi);
   cursor: pointer;
 }
-.slider::before {
+.orow-ctl > .slider::before {
   /* larger hit area */
   content: '';
   position: absolute;
@@ -1168,6 +1166,7 @@
 .tab-overlay {
   position: absolute;
   inset: 0;
+  background: radial-gradient(ellipse at 50% 50%, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.25));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1445,7 +1444,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: 210px;
+  padding-top: 360px;
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.4s, visibility 0s linear 0.4s;
@@ -1457,6 +1456,7 @@
   transition: opacity 0.4s;
 }
 .in-mode {
+  display: none;
   font-family: var(--f-head);
   font-weight: 600;
   font-size: 26px;
@@ -1599,7 +1599,7 @@
 .rs-page {
   position: absolute;
   inset: 0;
-  background: rgba(5, 7, 4, 0.8);
+  background: linear-gradient(90deg, rgba(5, 7, 4, 0.94), rgba(5, 7, 4, 0.82));
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.5s, visibility 0s linear 0.5s;
@@ -1632,6 +1632,9 @@
   display: grid;
   grid-template-columns: 520px 1fr;
   gap: 30px;
+}
+.rs-me {
+  align-self: start;
 }
 .rs-stats {
   padding: 8px 0;
@@ -2022,8 +2025,8 @@
 /* points */
 .hud-points {
   position: absolute;
-  left: calc(50% + 46px);
-  top: calc(50% - 86px);
+  left: calc(50% + 40px);
+  top: calc(50% - 30px);
   width: 0;
   height: 0;
 }
@@ -2100,10 +2103,10 @@
   pointer-events: none;
 }
 .hud-announce {
-  top: 210px;
+  top: 250px;
 }
 .hud-ssplash {
-  top: 300px;
+  top: 120px;
 }
 .an-t {
   font-weight: 800;
@@ -2224,31 +2227,31 @@
 }
 .dmg-ind svg {
   position: absolute;
-  left: -60px;
-  top: -230px;
-  width: 120px;
-  height: 80px;
+  left: -80px;
+  top: -200px;
+  width: 160px;
+  height: 70px;
   overflow: visible;
-}
-.dmg-ind path {
-  fill: rgba(220, 20, 10, 0.88);
-  filter: drop-shadow(0 0 6px rgba(255, 0, 0, 0.7));
+  transform-origin: 80px 200px;
 }
 .dmg-ind.pulse svg {
   animation: dmgpulse 0.35s ease-out;
 }
 @keyframes dmgpulse {
-  0% { transform: scale(1.18); }
-  100% { transform: none; }
+  0% { transform: scale(1.12); filter: brightness(1.6); }
+  100% { transform: none; filter: none; }
 }
 .gren-icon {
   position: absolute;
-  left: -30px;
-  top: -30px;
-  width: 60px;
-  height: 60px;
+  left: -32px;
+  top: -32px;
+  width: 64px;
+  height: 64px;
+  padding: 8px;
   color: #fff;
-  filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.9));
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(200, 20, 10, 0.55), rgba(200, 20, 10, 0) 70%);
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.95));
 }
 .gren-icon .gicon {
   width: 100%;
@@ -2256,13 +2259,13 @@
 }
 .gr-arrow {
   position: absolute;
-  left: -11px;
-  top: -308px;
+  left: -13px;
+  top: -312px;
   width: 0;
   height: 0;
-  border-left: 11px solid transparent;
-  border-right: 11px solid transparent;
-  border-bottom: 18px solid #ff4a3c;
+  border-left: 13px solid transparent;
+  border-right: 13px solid transparent;
+  border-bottom: 22px solid #ff3a2a;
   filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.9));
 }
 
@@ -2372,4 +2375,9 @@
 }
 .mw-stage .btn-back {
   padding: 8px 34px 6px;
+}
+
+/* Results / end-of-match own the screen: drop the gameplay HUD behind them */
+.mw-stage:has(.results.on) .hud {
+  opacity: 0;
 }
