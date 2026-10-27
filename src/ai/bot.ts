@@ -1,9 +1,10 @@
-import { type Material, type MeshStandardMaterial, type Object3D, Vector3 } from 'three'
+import { type Material, type MeshStandardMaterial, type Object3D, type SkinnedMesh, Vector3 } from 'three'
 import { CONFIG } from '../core/config'
 import type { Game } from '../core/game'
 import { clamp, DEG, damp, directionFromYawPitch, lerp, wrapAngle, yawFromDirection } from '../core/math'
 import type { Actor, ActorHit, ActorStats, DamageInfo, Ladder, ObjectiveId, ObjectivePoint, Team, WeaponDef, WeaponId } from '../core/types'
 import { WEAPONS } from '../weapons/defs'
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { createWorldWeaponModel } from '../weapons/world-models'
 import type { CapsuleResult } from '../world/collision'
 import { type AnimAction, type AnimInput, SoldierAnimator } from './animator'
@@ -201,6 +202,7 @@ export class Bot implements Actor {
   private readonly grenadeAt = new Vector3()
 
   private turning = false
+  private corpses: { mesh: SkinnedMesh; mat: MeshStandardMaterial; t: number; gun: Object3D | null }[] = []
   private airStuckT = 0
   private readonly baseMat: Material
   private readonly fadeMat: MeshStandardMaterial
@@ -332,6 +334,9 @@ export class Bot implements Actor {
     this.mantleT = -1
     this.sprinting = false
     this.timeSinceDamage = 99
+    // A body still lying around becomes a detached corpse (static snapshot that
+    // keeps its own fade timer); the rig is reused for the respawned soldier.
+    if (this.rig.root.visible && this.corpseT > 0 && this.corpseT < CORPSE_TIME + SINK_TIME) this.leaveCorpse()
     this.ragdoll.stop()
     this.rig.mesh.material = this.baseMat
     this.rig.mesh.castShadow = true
@@ -422,6 +427,13 @@ export class Bot implements Actor {
   }
 
   dispose() {
+    for (const c of this.corpses) {
+      c.mesh.removeFromParent()
+      c.mesh.skeleton.dispose()
+      c.mat.dispose()
+      c.gun?.removeFromParent()
+    }
+    this.corpses = []
     this.fadeMat.dispose()
     this.rig.root.removeFromParent()
     this.dropped?.removeFromParent()
@@ -432,6 +444,7 @@ export class Bot implements Actor {
 
   /** lod: 0 full, 1 far (half rate), 2 off-screen (third rate). */
   update(dt: number, lod: number) {
+    if (this.corpses.length) this.updateCorpses(dt)
     if (!this.alive) {
       this.updateCorpse(dt)
       return
@@ -2023,6 +2036,50 @@ export class Bot implements Actor {
       }
     }
     this.hitboxes.invalidate()
+  }
+
+  private leaveCorpse() {
+    this.rig.root.updateMatrixWorld(true)
+    const mesh = cloneSkinned(this.rig.mesh) as SkinnedMesh
+    const mat = this.fadeMat.clone()
+    mat.opacity = 1
+    mesh.material = mat
+    mesh.matrixAutoUpdate = false
+    mesh.matrix.copy(this.rig.mesh.matrixWorld)
+    this.game.render.scene.add(mesh)
+    mesh.updateMatrixWorld(true)
+    // The dropped gun stays with the body; the soldier gets a fresh one.
+    const gun = this.dropped
+    if (gun) {
+      const slot = this.models.primary === gun ? 'primary' : 'secondary'
+      const fresh = createWorldWeaponModel(slot === 'primary' ? this.profile.primary : this.profile.secondary)
+      fresh.traverse((o) => {
+        o.castShadow = true
+      })
+      this.rig.root.add(fresh)
+      this.models[slot] = fresh
+      this.dropped = null
+    }
+    this.corpses.push({ mesh, mat, t: this.corpseT, gun })
+  }
+
+  private updateCorpses(dt: number) {
+    for (let i = this.corpses.length - 1; i >= 0; i--) {
+      const c = this.corpses[i]!
+      c.t += dt
+      if (c.t <= CORPSE_TIME) continue
+      const s = Math.min(1, (c.t - CORPSE_TIME) / SINK_TIME)
+      c.mat.opacity = 1 - s * s * (3 - 2 * s)
+      c.mesh.castShadow = c.mat.opacity > 0.55
+      if (c.gun && s > 0.6) c.gun.visible = false
+      if (s >= 1) {
+        c.mesh.removeFromParent()
+        c.mesh.skeleton.dispose()
+        c.mat.dispose()
+        c.gun?.removeFromParent()
+        this.corpses.splice(i, 1)
+      }
+    }
   }
 
   private updateCorpse(dt: number) {

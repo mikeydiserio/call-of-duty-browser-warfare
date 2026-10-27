@@ -111,6 +111,11 @@ export class BotManager implements BotSquad {
     }
   }
 
+  /** Rebuild every bot's enemy memories (NET: humans joined or left mid-match). */
+  initMemories(actors: Actor[]) {
+    for (const b of this.list) b.initMemories(actors)
+  }
+
   // ─── Squad coordination (BotSquad) ────────────────────────────────────────
 
   objectiveLoad(team: Team, id: ObjectiveId, self: Bot): number {
