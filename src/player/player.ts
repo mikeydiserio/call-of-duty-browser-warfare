@@ -37,6 +37,7 @@ const T = {
   // mantle
   mantleMax: 1.25,
   mantleMin: 0.42,
+  airMantleTime: 0.65,
 } as const
 
 const STANCE_SPEED = [CONFIG.walkSpeed, CONFIG.crouchSpeed, CONFIG.proneSpeed] as const
@@ -48,10 +49,11 @@ const HALF_PI = Math.PI / 2
 const _a = new Vector3()
 const _b = new Vector3()
 const _p0 = new Vector3()
-const _p1 = new Vector3()
 const _pA = new Vector3()
 const _o = new Vector3()
 const _d = new Vector3()
+const FOOT_X = [0, 1, -1, 0, 0] as const
+const FOOT_Z = [0, 0, 0, 1, -1] as const
 
 const capRadius = (stance: 0 | 1 | 2) => (stance === 2 ? 0.25 : CONFIG.capsuleRadius)
 const capHeight = (stance: 0 | 1 | 2) => (stance === 2 ? 0.54 : CONFIG.capsuleHeight[stance])
@@ -97,6 +99,9 @@ export class Player implements Actor {
   private landImpact = 0
   private timeSinceSpawn = 0
   private stepOffset = 0
+  private floorNy = 1
+  private airMantle = 0
+  private jumpStartY = 0
   private readonly lastSafe = new Vector3()
   private safeTimer = 0
 
@@ -108,6 +113,8 @@ export class Player implements Actor {
   private ladder: Ladder | null = null
   private ladderVy = 0
   private ladderCooldown = 0
+  private ladderTurn = 0
+  private ladderDown = false
   private ladderStepAcc = 0
   private dismountT = -1
   private dismountDur = 0.38
@@ -154,6 +161,8 @@ export class Player implements Actor {
   private deathYawTarget = 0
   private deathPitchTarget = -0.3
   private deathHasTarget = false
+  /** How far the death cam may slump forward before it would clip into a wall. */
+  private deathBack = 0.45
 
   private readonly move: MovementState = {
     speed: 0, maxSpeed: CONFIG.walkSpeed, sprinting: false, grounded: false, stance: 0,
@@ -216,6 +225,13 @@ export class Player implements Actor {
       this.deathPitchTarget = -0.35
     }
     this.hitFlash = 0.6
+    // The camera slumps forward along the final death-cam heading: keep it out of walls there.
+    const fy = this.deathHasTarget ? this.deathYawTarget : this.yaw
+    _o.set(this.position.x, this.position.y + 0.3, this.position.z)
+    _d.set(-Math.sin(fy), 0, -Math.cos(fy))
+    const behind = this.game.collision.raycast(_o, _d, 0.8)
+    this.deathBack = behind ? Math.max(0, behind.distance - 0.3) * 0.9 : 0.45
+    if (this.deathBack > 0.45) this.deathBack = 0.45
   }
 
   spawn(position: Vector3, yaw: number) {
@@ -296,7 +312,10 @@ export class Player implements Actor {
       if (s.jumpPressed) this.jumpBuffer = T.jumpBuffer
       if (this.jumpBuffer > 0) this.handleJump(wishY)
       if (this.ladderCooldown <= 0 && wishY > 0.1) this.tryAttachLadder()
+      // CoD: keep reaching for a ledge for a moment after jumping towards it.
+      if (!this.grounded && !this.ladder && this.airMantle > 0 && wishY > 0.1 && this.velocity.y < 3.5) this.tryMantle()
     }
+    this.airMantle = this.grounded ? 0 : Math.max(0, this.airMantle - dt)
 
     if (this.mantling) this.updateMantle(dt)
     else if (this.ladder) this.updateLadder(dt, wishY, canAct, s)
@@ -368,7 +387,15 @@ export class Player implements Actor {
     if (this.ladder) {
       const n = this.ladder.normal
       const face = yawFromDirection(-n.x, -n.z)
-      this.yaw = face + clamp(wrapAngle(this.yaw - face), -1.35, 1.35)
+      if (this.ladderTurn > 0) {
+        // Just mounted: swing the view round onto the rungs (and down, when mounting from the top).
+        this.ladderTurn = Math.max(0, this.ladderTurn - dt)
+        const k = 1 - Math.exp(-12 * dt)
+        this.yaw += wrapAngle(face - this.yaw) * k
+        if (this.ladderDown) this.pitch = damp(this.pitch, -0.6, 10, dt)
+      } else {
+        this.yaw = face + clamp(wrapAngle(this.yaw - face), -1.35, 1.35)
+      }
     }
   }
 
@@ -420,7 +447,12 @@ export class Player implements Actor {
 
   private handleJump(wishY: number) {
     const p = this.position
-    if (this.stance === 2) return
+    if (this.stance === 2) {
+      // MW2: jump while prone pops you up to a crouch.
+      if (this.grounded && this.diveT <= 0 && this.fits(p.x, p.y, p.z, 1)) this.setStance(1)
+      this.jumpBuffer = 0
+      return
+    }
     if (wishY > 0.1 && this.tryMantle()) {
       this.jumpBuffer = 0
       return
@@ -431,6 +463,8 @@ export class Player implements Actor {
       this.setStance(0)
     }
     this.velocity.y = CONFIG.jumpVelocity
+    this.airMantle = T.airMantleTime
+    this.jumpStartY = p.y
     this.grounded = false
     this.coyote = 0
     this.jumpBuffer = 0
@@ -460,7 +494,7 @@ export class Player implements Actor {
       }
     } else if (!want) {
       this.stamina = Math.min(T.sprintTime, this.stamina + T.sprintRegen * dt)
-      if (this.exhausted && this.stamina >= T.sprintResume) this.exhausted = false
+      if (this.exhausted && this.stamina >= T.sprintResume && !s.sprint) this.exhausted = false // MW2: re-press to sprint again
     }
   }
 
@@ -556,94 +590,154 @@ export class Player implements Actor {
     return res.onGround && res.groundNormal.y >= T.walkableNy
   }
 
+  /**
+   * Highest walkable floor under the capsule footprint (centre + 4 points at 0.95 r), searched from
+   * `up` above the feet to `down` below. Off-centre samples only count on near-flat tops (stair treads,
+   * kerbs) so slopes keep the feet on the centre line. Sets `floorNy`. Returns -Infinity if none.
+   */
+  private probeFloor(x: number, y: number, z: number, up: number, down: number): number {
+    const col = this.game.collision
+    const r = this.capR * 0.95
+    const top = y + up
+    const len = up + down
+    _d.set(0, -1, 0)
+    let best = -Infinity
+    for (let i = 0; i < 5; i++) {
+      _o.set(x + FOOT_X[i]! * r, top, z + FOOT_Z[i]! * r)
+      const hit = col.raycast(_o, _d, len)
+      if (!hit) continue
+      const ny = hit.normal.y
+      if (ny < (i === 0 ? T.walkableNy : 0.9)) continue
+      if (hit.point.y > best + 1e-4) {
+        best = hit.point.y
+        this.floorNy = ny
+      }
+    }
+    return best
+  }
+
+  /** One collision sub-step: CoD/Quake style step-slide on the ground, ballistic in the air. */
   private step(h: number) {
     const p = this.position
     const v = this.velocity
     const wasGrounded = this.grounded
-    _p0.copy(p)
     if (!wasGrounded) v.y -= CONFIG.gravity * h
     const preVy = v.y
-    p.x += v.x * h
-    p.y += v.y * h
-    p.z += v.z * h
-    let res = this.resolve()
-    let grounded = this.walkable(res)
+    const dx = v.x * h
+    const dz = v.z * h
+    const want = Math.hypot(dx, dz)
+    _p0.copy(p)
+    let grounded = false
 
-    // Contact response: slide along walls / ceilings, never into them.
-    if (res.collided) {
-      const pl = res.push.length()
-      if (pl > 1e-5) {
-        const nx = res.push.x / pl
-        const ny = res.push.y / pl
-        const nz = res.push.z / pl
-        if (grounded) {
-          if (v.y < 0) v.y = 0
-        } else {
-          const vn = v.x * nx + v.y * ny + v.z * nz
-          if (vn < 0) {
-            v.x -= nx * vn
-            v.y -= ny * vn
-            v.z -= nz * vn
+    if (wasGrounded) {
+      // Horizontal move, follow the floor first (up treads, along slopes, down small drops), then collide.
+      p.x += dx
+      p.z += dz
+      const fy = v.y <= 0.001 ? this.probeFloor(p.x, p.y, p.z, T.stepHeight + 0.04, T.snapDown) : -Infinity
+      if (fy > -Infinity) {
+        // On a slope the bottom sphere rests above the contact point under its centre.
+        const ny = this.floorNy
+        const ty = fy + (ny < 0.999 ? this.capR * (1 / ny - 1) : 0)
+        const dy = ty - p.y
+        p.y = ty
+        if (Math.abs(dy) > 0.04 && ny > 0.95) this.stepOffset = clamp(this.stepOffset - dy, -0.5, 0.5)
+        grounded = true
+        v.y = 0
+      }
+      let res = this.resolve()
+      if (want > 1e-5) {
+        const got = ((p.x - _p0.x) * dx + (p.z - _p0.z) * dz) / want
+        if (got < want * 0.7 && this.tryStepUp(dx, dz, want)) {
+          res = this.capRes
+          grounded = true
+        } else this.slide(res)
+      }
+      if (!grounded && this.walkable(res) && v.y <= 0.001) {
+        // Perched on an edge / pipe crown the rays miss.
+        grounded = true
+        v.y = 0
+      }
+    } else {
+      p.x += dx
+      p.y += v.y * h
+      p.z += dz
+      const res = this.resolve()
+      if (res.collided) {
+        if (res.push.y < -1e-4 && v.y > 0) v.y = 0 // head bump
+        this.slide(res)
+      }
+      if (v.y <= 0.001) {
+        if (this.walkable(res)) grounded = true
+        else {
+          // Catch the floor just under the feet (and kerbs we fall past while moving).
+          const fy = this.probeFloor(p.x, p.y, p.z, 0.12, Math.max(0.04, -v.y * h + 0.02))
+          if (fy > -Infinity) {
+            p.y = fy
+            this.resolve()
+            grounded = true
           }
         }
       }
-    }
-
-    if (!grounded && wasGrounded && v.y <= 0.001) {
-      // Ground snap: stay glued going down slopes / over small drops.
-      _p1.copy(p)
-      p.y -= T.snapDown
-      res = this.resolve()
-      if (this.walkable(res)) {
-        const drop = _p1.y - p.y
-        p.x = _p1.x
-        p.z = _p1.z
-        grounded = true
+      if (grounded) {
+        if (preVy < -1) this.landImpact = Math.max(this.landImpact, -preVy)
         v.y = 0
-        if (drop > 0.1) this.stepOffset = clamp(this.stepOffset + drop, -0.5, 0.5)
-      } else {
-        p.copy(_p1)
-      }
-    }
-
-    if (grounded) {
-      if (!wasGrounded && preVy < -1) this.landImpact = Math.max(this.landImpact, -preVy)
-      v.y = 0
-      // Step up small ledges / stair risers when the horizontal move got blocked.
-      const dx = v.x * h
-      const dz = v.z * h
-      const want = Math.hypot(dx, dz)
-      if (wasGrounded && want > 1e-5) {
-        const got = ((p.x - _p0.x) * dx + (p.z - _p0.z) * dz) / want
-        if (got < want * 0.6) this.tryStepUp(dx, dz, want, got)
       }
     }
     this.grounded = grounded
   }
 
-  private tryStepUp(dx: number, dz: number, want: number, got: number) {
+  /** Remove the velocity component going into a wall/ceiling contact; never adds upward speed. */
+  private slide(res: CapsuleResult) {
+    if (!res.collided) return
+    const v = this.velocity
+    const push = res.push
+    const pl = push.length()
+    if (pl < 1e-5) return
+    const nx = push.x / pl
+    const ny = push.y / pl
+    const nz = push.z / pl
+    if (ny >= T.walkableNy) return // floor-ish: handled by grounding
+    const hl = Math.hypot(nx, nz)
+    if (hl > 1e-4) {
+      const hx = nx / hl
+      const hz = nz / hl
+      const vn = v.x * hx + v.z * hz
+      if (vn < 0) {
+        v.x -= hx * vn
+        v.z -= hz * vn
+      }
+    }
+    if (ny < -0.3 && v.y > 0) v.y = 0
+  }
+
+  /** Blocked while grounded: look for a tread ≤ stepHeight just ahead with head room, and climb onto it. */
+  private tryStepUp(dx: number, dz: number, want: number): boolean {
     const p = this.position
+    const ux = dx / want
+    const uz = dz / want
+    const lead = this.capR + 0.06
+    const base = Math.min(_p0.y, p.y)
+    const top = this.probeStep(_p0.x + ux * lead, base, _p0.z + uz * lead)
+    if (top <= base + 0.02 || top > base + T.stepHeight) return false
+    if (!this.fits(_p0.x + dx, top + 0.01, _p0.z + dz, this.stance)) return false
     _pA.copy(p)
-    // lift
-    p.copy(_p0)
-    p.y += T.stepHeight
+    p.set(_p0.x + dx, top + 0.005, _p0.z + dz)
     this.resolve()
-    if (p.y < _p0.y + T.stepHeight - 0.03) {
+    if (p.y < top - 0.02) {
       p.copy(_pA)
-      return
+      return false
     }
-    p.x += dx
-    p.z += dz
-    this.resolve()
-    p.y -= T.stepHeight + 0.06
-    const res = this.resolve()
-    const prog = ((p.x - _p0.x) * dx + (p.z - _p0.z) * dz) / want
-    if (this.walkable(res) && prog > got + 0.15 * want && p.y <= _p0.y + T.stepHeight + 0.02 && p.y >= _p0.y - 0.02) {
-      this.stepOffset = clamp(this.stepOffset + (_p0.y - p.y), -0.5, 0.5)
-      this.velocity.y = 0
-    } else {
-      p.copy(_pA)
-    }
+    this.stepOffset = clamp(this.stepOffset + (base - p.y), -0.5, 0.5)
+    this.velocity.y = 0
+    return true
+  }
+
+  /** Flat tread height at a point, searched from stepHeight above the feet. */
+  private probeStep(x: number, y: number, z: number): number {
+    _o.set(x, y + T.stepHeight + 0.05, z)
+    _d.set(0, -1, 0)
+    const hit = this.game.collision.raycast(_o, _d, T.stepHeight + 0.1)
+    return hit && hit.normal.y >= 0.9 ? hit.point.y : -Infinity
   }
 
   private finishMovement(dt: number, prevX: number, prevZ: number) {
@@ -656,7 +750,7 @@ export class Player implements Actor {
     const inst = Math.hypot(p.x - prevX, p.z - prevZ) / dt
     this.speed = inst > this.speed ? damp(this.speed, inst, 30, dt) : damp(this.speed, inst, 18, dt)
     if (this.speed < 0.05) this.speed = 0
-    this.stepOffset = damp(this.stepOffset, 0, 15, dt)
+    this.stepOffset = damp(this.stepOffset, 0, 22, dt)
     if (Math.abs(this.stepOffset) < 0.0005) this.stepOffset = 0
 
     // Fell out of the world / NaN: restore.
@@ -690,23 +784,28 @@ export class Player implements Actor {
     const fz = -Math.cos(this.yaw)
     const r = CONFIG.capsuleRadius
     const reach = r + 0.32
-    const topY = p.y + T.mantleMax + 0.4
+    // Mid-air (jumped towards it) the ledge limit is measured from where the jump started.
+    const air = !this.grounded
+    const base = air ? Math.min(this.jumpStartY, p.y) : p.y
+    const minY = air ? Math.max(p.y + 0.15, base + T.mantleMin) : p.y + T.mantleMin
+    const topY = base + T.mantleMax + 0.4
+    if (topY <= minY) return false
     _o.set(p.x + fx * reach, topY, p.z + fz * reach)
     _d.set(0, -1, 0)
-    const top = col.raycast(_o, _d, topY - (p.y + T.mantleMin))
+    const top = col.raycast(_o, _d, topY - minY)
     if (!top || top.normal.y < 0.75) return false
-    const h = top.point.y - p.y
-    if (h < T.mantleMin || h > T.mantleMax) return false
+    if (top.point.y - base > T.mantleMax) return false
+    const h = Math.max(0.2, top.point.y - p.y)
     // A vertical face must be in front of us at ledge height.
     _o.set(p.x, top.point.y - 0.15, p.z)
     _d.set(fx, 0, fz)
     const wall = col.raycast(_o, _d, reach + 0.2)
-    if (!wall || wall.normal.y > 0.5 || wall.normal.x * fx + wall.normal.z * fz > -0.4) return false
+    if (!wall || wall.normal.y > 0.72 || wall.normal.x * fx + wall.normal.z * fz > -0.4) return false
     const tx = wall.point.x + fx * (r + 0.14)
     const tz = wall.point.z + fz * (r + 0.14)
-    const ty = top.point.y
-    const support = col.groundHeight(tx, tz, ty + 0.6, 1.0)
-    if (support < ty - 0.12 || support > ty + 0.12) return false
+    const support = col.groundHeight(tx, tz, top.point.y + 0.6, 1.0)
+    if (support < top.point.y - 0.15 || support > top.point.y + 0.15) return false
+    const ty = Math.max(top.point.y, support)
     if (!this.fits(tx, ty + 0.01, tz, 0, true)) return false
     if (!this.fits(p.x, ty + 0.03, p.z, 0)) return false
 
@@ -768,6 +867,10 @@ export class Player implements Actor {
       } else continue
       this.ladder = l
       this.ladderVy = fromTop ? -1.2 : 0
+      this.ladderDown = fromTop
+      // Turn onto the rungs if we came in at an angle (always when stepping on from the top).
+      const face = yawFromDirection(-n.x, -n.z)
+      this.ladderTurn = fromTop || Math.abs(wrapAngle(this.yaw - face)) > 1.35 ? 0.45 : 0
       this.ladderStepAcc = 0
       this.sprinting = false
       this.setStance(0)
@@ -791,7 +894,7 @@ export class Player implements Actor {
     p.z = damp(p.z, l.bottom.z + n.z * T.ladderOffset + tz * lat, 14, dt)
 
     // CoD: forward climbs up when looking up, down when looking down.
-    const look = clamp((this.pitch + 0.2) / 0.2, -1, 1)
+    const look = this.ladderTurn > 0 && this.ladderDown ? -1 : clamp((this.pitch + 0.2) / 0.2, -1, 1)
     const target = canAct ? wishY * look * T.climbSpeed : 0
     this.ladderVy = damp(this.ladderVy, target, 12, dt)
     p.y += this.ladderVy * dt
@@ -936,9 +1039,9 @@ export class Player implements Actor {
     const side = d.x * cy + d.z * -sy // positive: pushed towards our right
     const front = Math.max(0, -fwd)
     const back = Math.max(0, fwd)
-    this.flinchPitch.impulse(mag * (0.28 + 0.35 * front - 0.22 * back))
-    this.flinchRoll.impulse(-side * 0.5 * mag)
-    this.flinchYaw.impulse(-side * 0.22 * mag)
+    this.flinchPitch.impulse(mag * (0.75 + 0.9 * front - 0.6 * back))
+    this.flinchRoll.impulse(-side * 1.3 * mag)
+    this.flinchYaw.impulse(-side * 0.6 * mag)
     this.hitFlash = Math.max(this.hitFlash, 0.22 + 0.3 * mag)
   }
 
@@ -1020,7 +1123,7 @@ export class Player implements Actor {
     if (t > 0.55) eye += 0.05 * Math.exp(-9 * (t - 0.55)) * Math.abs(Math.sin(14 * (t - 0.55)))
     this.camEye = eye
     this.camRoll = this.deathRoll * smoothstep(0, 0.6, t)
-    this.camBack = -0.45 * smoothstep(0, 0.7, t)
+    this.camBack = -this.deathBack * smoothstep(0, 0.7, t)
     this.bobX = 0
     this.landDip.update(0, dt)
     this.kickPitch.update(0, dt)
@@ -1032,7 +1135,7 @@ export class Player implements Actor {
 
     const fx = g.render.effects
     fx.dead += (1 - fx.dead) * (1 - Math.exp(-1.8 * dt))
-    fx.damage = damp(fx.damage, 0.85, 2.5, dt)
+    fx.damage = damp(fx.damage, 0.6, 2.5, dt)
     fx.ads = damp(fx.ads, 0, 10, dt)
 
     if (t > 0.4 && (s.fire || s.firePressed)) g.mode.requestRespawn(this)
