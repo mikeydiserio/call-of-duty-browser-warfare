@@ -111,7 +111,7 @@ export class Combat {
     let best: Actor | null = null
     let bestD = WEAPONS.knife.rangeClose + 0.4
     for (const a of this.game.actors) {
-      if (!a.alive || a === attacker || a.team === attacker.team) continue
+      if (!a.alive || !this.game.mode.isEnemy(attacker, a)) continue
       _toEye.subVectors(a.position, attacker.position)
       _toEye.y = 0
       const d = _toEye.length()
@@ -148,7 +148,8 @@ export class Combat {
     this.game.events.emit('grenade:explode', { position: position.clone(), owner })
     for (const a of this.game.actors) {
       if (!a.alive) continue
-      if (owner && a !== owner && a.team === owner.team) continue
+      // No team damage from explosions (self-damage still applies).
+      if (owner && a !== owner && !this.game.mode.isEnemy(owner, a)) continue
       a.getEyePosition(_eye)
       const mid = _closest.copy(a.position).setY(a.position.y + 0.9)
       const d = Math.min(position.distanceTo(mid), position.distanceTo(_eye))
@@ -191,7 +192,7 @@ export class Combat {
     const k = info.attacker
     const suicide = !k || k === v
     const headshot = info.zone === 'head' && !info.explosive
-    if (!suicide && k) {
+    if (!suicide && k && this.game.mode.isEnemy(k, v)) {
       k.stats.kills++
       k.stats.streak++
       if (headshot) k.stats.headshots++
@@ -205,7 +206,7 @@ export class Combat {
       for (const [id, dmg] of log) {
         if (id === k?.id || dmg < 30) continue
         const a = this.game.actors.find((x) => x.id === id)
-        if (a && a.team !== v.team) {
+        if (a && this.game.mode.isEnemy(a, v)) {
           a.stats.assists++
           a.stats.score += CONFIG.assistPoints
           if (a.isPlayer) this.game.events.emit('player:points', { amount: CONFIG.assistPoints, reason: 'ASSIST' })
@@ -290,7 +291,7 @@ export class Combat {
     let best: { actor: Actor; hit: ActorHit } | null = null
     let bestD = maxD
     for (const a of this.game.actors) {
-      if (!a.alive || a === shooter || a.team === shooter.team) continue
+      if (!a.alive || !this.game.mode.isEnemy(shooter, a)) continue
       const hit = a.raycast(origin, dir, bestD)
       if (hit && hit.distance < bestD) {
         bestD = hit.distance
@@ -310,7 +311,7 @@ export class Combat {
 
   private emitWhizz(shooter: Actor, from: Vector3, to: Vector3) {
     for (const a of this.game.actors) {
-      if (!a.isPlayer || !a.alive || a.team === shooter.team) continue
+      if (!a.isPlayer || !a.alive || !this.game.mode.isEnemy(shooter, a)) continue
       a.getEyePosition(_eye)
       // Closest point on the bullet segment to the listener's head.
       const seg = _toEye.subVectors(to, from)

@@ -113,7 +113,7 @@ export class Input {
     const s = this.state
     if (!this.enabled) {
       s.moveX = s.moveY = 0
-      s.sprint = s.fragHeld = s.scoreboard = false
+      s.sprint = s.fragHeld = s.scoreboard = s.useHeld = false
       return
     }
     s.moveX = (k.has('KeyD') ? 1 : 0) - (k.has('KeyA') ? 1 : 0)
@@ -121,6 +121,7 @@ export class Input {
     s.sprint = k.has('ShiftLeft') || k.has('ShiftRight')
     s.fragHeld = k.has('KeyG')
     s.scoreboard = k.has('Tab')
+    s.useHeld = k.has('KeyF')
   }
 
   /** Clear one-frame flags and mouse deltas; call at end of frame. */

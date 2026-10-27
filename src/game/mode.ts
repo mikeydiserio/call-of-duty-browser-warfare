@@ -2,15 +2,63 @@ import { Vector3 } from 'three'
 import { CONFIG } from '../core/config'
 import type { MatchPhase } from '../core/events'
 import type { Game } from '../core/game'
-import type { Actor, BombState, DamageInfo, GameModeId, MatchSettings, ObjectiveState, SpawnPoint, Team } from '../core/types'
-import { otherTeam } from '../core/types'
+import type {
+  Actor,
+  BombState,
+  DamageInfo,
+  GameModeId,
+  MatchSettings,
+  ObjectiveId,
+  ObjectivePoint,
+  ObjectiveState,
+  SpawnPoint,
+  Team,
+} from '../core/types'
+import { DominationRules } from './modes/dom'
+import { FreeForAllRules } from './modes/ffa'
+import type { ModeRules } from './modes/rules'
+import { SearchDestroyRules } from './modes/sd'
+import { TeamDeathmatchRules } from './modes/tdm'
 
-const _eye = new Vector3()
 const _p = new Vector3()
 
+export type StreakId = 'uav' | 'airstrike'
+
+/** Plain-JSON snapshot of all mode state (for the net layer). Vectors are [x, y, z]. */
+export interface ModeNetState {
+  id: GameModeId
+  phase: MatchPhase
+  round: number
+  score: Record<Team, number>
+  timeLeft: number
+  introLeft: number
+  winner: Team | 'draw' | null
+  winnerActorId: number | null
+  placings: number[]
+  uavUntil: Record<Team, number>
+  uavActorUntil: Record<number, number>
+  respawn: [number, number][]
+  objectives: { id: ObjectiveId; owner: Team | null; capturingTeam: Team | null; progressTeam: Team | null; progress: number; contested: boolean }[]
+  bomb: {
+    attackers: Team
+    carrierId: number | null
+    plantingId: number | null
+    defusingId: number | null
+    position: [number, number, number]
+    planted: boolean
+    site: ObjectiveId | null
+    fuseLeft: number
+    plantProgress: number
+    defuseProgress: number
+  } | null
+  rules: Record<string, number | string | boolean | null>
+}
+
 /**
- * Match rules: scoring, spawning, respawn timers, killstreaks, UAV.
- * Currently implements Team Deathmatch; FFA / Domination / S&D plug in via `id` (see MatchSettings).
+ * Match rules facade: phase, scoring, spawning, respawn timers, killstreaks, UAV
+ * and the objective APIs. Shared logic lives here; per-mode rules (TDM / FFA /
+ * Domination / S&D) live in `./modes/*` and are picked from `game.match.mode`
+ * in `begin()`. `game.mode` is the one public object everyone reads.
  */
 export class GameMode {
   /** Active mode for the current/next match (set from game.match in begin()). */
@@ -18,23 +66,38 @@ export class GameMode {
   phase: MatchPhase = 'menu'
   /** Domination flags (empty unless id === 'dom'). */
   objectives: ObjectiveState[] = []
+  /** S&D bomb sites (empty unless id === 'sd'). */
+  bombSites: ObjectivePoint[] = []
   /** Search & Destroy bomb (null unless id === 'sd'). */
   bomb: BombState | null = null
   /** Current round (S&D), 1-based; 1 for non-round modes. */
   round = 1
+  /**
+   * Team scores: kills (TDM), flag points (DOM), round wins (S&D).
+   * FFA: [player team] = local player's kills, [other team] = best opponent's kills (so team-style HUDs stay meaningful).
+   */
   score: Record<Team, number> = { tf141: 0, opfor: 0 }
+  /** Match clock, or the round clock in S&D (frozen while the bomb is planted). */
   timeLeft = CONFIG.timeLimit
-  /** Countdown during the pre-match intro. */
+  /** Countdown during the pre-match (or pre-round) intro. */
   introLeft = 0
-  /** Game time at which each team's UAV expires (0 = none). */
+  /** Game time at which each team's UAV expires (0 = none). Team modes only. */
   uavUntil: Record<Team, number> = { tf141: 0, opfor: 0 }
+  /** FFA: game time at which each actor's own UAV expires (by actor id). */
+  uavActorUntil: Record<number, number> = {}
   /** Killstreak rewards waiting to be called in by the local player. */
-  playerStreaks: ('uav' | 'airstrike')[] = []
+  playerStreaks: StreakId[] = []
+  /** Team-mode winner. FFA: the player's team if the player won, the other team if not, 'draw' on a tie. */
   winner: Team | 'draw' | null = null
+  /** FFA winner (null in team modes or on a tie). */
+  winnerActor: Actor | null = null
+  /** Actor ids sorted by final standing (filled at match end; FFA end screen uses the top 3). */
+  placingIds: number[] = []
+  rules: ModeRules = new TeamDeathmatchRules(this)
   private respawnTimers = new Map<number, number>()
-  private lastSpawnUse = new Map<SpawnPoint, number>()
+  readonly lastSpawnUse = new Map<SpawnPoint, number>()
 
-  constructor(private game: Game) {}
+  constructor(readonly game: Game) {}
 
   get playerTeam(): Team {
     return this.game.player.team
@@ -49,10 +112,31 @@ export class GameMode {
     return this.id !== 'ffa'
   }
 
+  /** False in round-based modes (S&D): the dead spectate until the next round. */
+  get canRespawn(): boolean {
+    return this.rules.respawns
+  }
+
   /** Use this instead of comparing `team` directly: in FFA everyone but yourself is an enemy. */
   isEnemy(a: Actor, b: Actor): boolean {
     if (a === b) return false
     return this.isTeamMode ? a.team !== b.team : true
+  }
+
+  actorById(id: number | null | undefined): Actor | null {
+    if (id === null || id === undefined) return null
+    return this.game.actors.find((a) => a.id === id) ?? null
+  }
+
+  /** Final (or live) standings, best first: score/kills, then fewest deaths. */
+  get placings(): Actor[] {
+    if (this.placingIds.length) return this.placingIds.map((id) => this.actorById(id)).filter((a): a is Actor => !!a)
+    return this.rankActors()
+  }
+
+  rankActors(): Actor[] {
+    const key = this.isTeamMode ? (a: Actor) => a.stats.score : (a: Actor) => a.stats.kills
+    return this.game.actors.slice().sort((a, b) => key(b) - key(a) || a.stats.deaths - b.stats.deaths || a.id - b.id)
   }
 
   setPhase(phase: MatchPhase, winner?: Team | 'draw') {
@@ -60,50 +144,60 @@ export class GameMode {
     this.game.events.emit('match:phase', { phase, winner })
   }
 
-  /** Reset scores and spawn everyone; begins the frozen intro countdown. */
+  /** Reset scores, build the rules for game.match.mode, spawn everyone and begin the intro countdown. */
   begin() {
     this.id = this.game.match.mode
+    this.rules = createRules(this.id, this)
     this.objectives = []
+    this.bombSites = []
     this.bomb = null
     this.round = 1
     this.score = { tf141: 0, opfor: 0 }
     this.timeLeft = this.game.match.timeLimit
     this.uavUntil = { tf141: 0, opfor: 0 }
+    this.uavActorUntil = {}
     this.playerStreaks = []
     this.winner = null
+    this.winnerActor = null
+    this.placingIds = []
     this.respawnTimers.clear()
     this.lastSpawnUse.clear()
     for (const a of this.game.actors) {
       a.stats = { kills: 0, deaths: 0, assists: 0, score: 0, streak: 0, shotsFired: 0, shotsHit: 0, headshots: 0 }
     }
+    this.rules.begin()
     for (const a of this.game.actors) this.spawnActor(a, true)
     this.introLeft = 4
     this.setPhase('intro')
     this.game.events.emit('score:changed', { ...this.score })
-    this.game.events.emit('match:announce', { text: 'TEAM DEATHMATCH', sub: 'Kill enemy players. First to 75 kills wins.', voice: 'tdm_intro' })
+    this.game.events.emit('match:announce', this.rules.intro())
   }
 
   update(dt: number) {
     if (this.phase === 'intro') {
       this.introLeft -= dt
       if (this.introLeft <= 0) {
+        this.introLeft = 0
         this.setPhase('playing')
         this.game.events.emit('match:announce', { text: 'FIGHT', voice: 'match_start' })
+        this.rules.onPlayStart()
       }
       return
     }
     if (this.phase !== 'playing') return
-    this.timeLeft -= dt
-    if (this.timeLeft <= 0) {
-      this.timeLeft = 0
-      this.end()
-      return
+    if (!this.rules.clockPaused()) {
+      this.timeLeft -= dt
+      if (this.timeLeft <= 0) {
+        this.timeLeft = 0
+        this.rules.onTimeUp()
+        if (this.phase !== 'playing') return
+      }
     }
     for (const [id, t] of this.respawnTimers) {
       const left = t - dt
       if (left <= 0) {
         this.respawnTimers.delete(id)
-        const a = this.game.actors.find((x) => x.id === id)
+        const a = this.actorById(id)
         if (a && !a.alive) this.spawnActor(a)
       } else this.respawnTimers.set(id, left)
     }
@@ -114,9 +208,20 @@ export class GameMode {
         this.game.events.emit('uav:changed', { team, active: false, until: 0 })
       }
     }
+    for (const key in this.uavActorUntil) {
+      const id = Number(key)
+      if (now > this.uavActorUntil[id]!) {
+        delete this.uavActorUntil[id]
+        if (id === this.game.player.id) this.game.events.emit('uav:changed', { team: this.playerTeam, active: false, until: 0 })
+      }
+    }
+    // F to plant / defuse (S&D) — polled here so the player controller stays untouched.
+    const input = this.game.input.state
+    if (input.usePressed && this.game.player.alive) this.use(this.game.player)
+    this.rules.update(dt)
   }
 
-  /** Seconds until the given actor respawns (0 if alive / unknown). */
+  /** Seconds until the given actor respawns (0 if alive / unknown / no respawns this round). */
   respawnIn(actor: Actor): number {
     return this.respawnTimers.get(actor.id) ?? 0
   }
@@ -127,29 +232,29 @@ export class GameMode {
     if (t !== undefined && t < CONFIG.respawnDelay - 1.6) this.respawnTimers.set(actor.id, 0)
   }
 
-  onKill(info: DamageInfo, suicide: boolean) {
-    const victim = info.victim
-    const killer = info.attacker
-    if (!suicide && killer && killer.team !== victim.team) {
-      this.score[killer.team]++
-      this.game.events.emit('score:changed', { ...this.score })
-      this.checkStreak(killer)
-      if (this.score[killer.team] >= this.game.match.scoreLimit) {
-        this.end()
-        return
-      }
-      // Lead-change / near-win announcer lines.
-      const s = this.score[killer.team]
-      if (s === this.game.match.scoreLimit - 5) {
-        const ours = killer.team === this.playerTeam
-        this.game.events.emit('match:announce', { text: ours ? 'FIVE KILLS TO WIN' : 'ENEMY FIVE KILLS FROM VICTORY', voice: ours ? 'near_win' : 'near_loss' })
-      }
-    } else if (suicide) {
-      this.score[victim.team] = Math.max(0, this.score[victim.team] - 1)
-      this.game.events.emit('score:changed', { ...this.score })
-    }
-    this.respawnTimers.set(victim.id, CONFIG.respawnDelay)
+  /** Queue a respawn (no-op in modes without respawns). */
+  scheduleRespawn(actor: Actor, delay = CONFIG.respawnDelay) {
+    if (this.rules.respawns) this.respawnTimers.set(actor.id, delay)
   }
+
+  clearRespawns() {
+    this.respawnTimers.clear()
+  }
+
+  onKill(info: DamageInfo, suicide: boolean) {
+    const killer = info.attacker
+    if (!suicide && killer && this.isEnemy(killer, info.victim)) this.checkStreak(killer)
+    this.rules.onKill(info, suicide)
+    if (this.phase === 'playing') this.scheduleRespawn(info.victim)
+  }
+
+  /** Award score to an actor; shows the "+N" popup for the local player. */
+  addPoints(actor: Actor, amount: number, reason: string) {
+    actor.stats.score += amount
+    if (actor.isPlayer) this.game.events.emit('player:points', { amount, reason })
+  }
+
+  // ─── Killstreaks / UAV ────────────────────────────────────────────────────
 
   /** Player activates the oldest held killstreak. */
   usePlayerStreak() {
@@ -158,13 +263,30 @@ export class GameMode {
     this.activateStreak(this.game.player, s)
   }
 
+  /**
+   * Team UAV. In FFA there are no team UAVs: this is true only for the local player's
+   * team while the local player's own UAV is up (so the HUD label works); use
+   * `isUavActiveFor(actor)` / `uavReveals(viewer, target)` for anything per-actor.
+   */
   isUavActive(team: Team) {
+    if (!this.isTeamMode) return team === this.playerTeam && this.isUavActiveFor(this.game.player)
     return this.uavUntil[team] > this.game.time
+  }
+
+  /** Whether `actor` currently benefits from a UAV (their team's, or their own in FFA). */
+  isUavActiveFor(actor: Actor) {
+    if (!this.isTeamMode) return (this.uavActorUntil[actor.id] ?? 0) > this.game.time
+    return this.uavUntil[actor.team] > this.game.time
+  }
+
+  /** UAV sweep shows `target` to `viewer` (enemy + viewer's UAV up). FFA: only the caller sees everyone. */
+  uavReveals(viewer: Actor, target: Actor) {
+    return target.alive && this.isEnemy(viewer, target) && this.isUavActiveFor(viewer)
   }
 
   private checkStreak(killer: Actor) {
     const streak = killer.stats.streak
-    let reward: 'uav' | 'airstrike' | null = null
+    let reward: StreakId | null = null
     if (streak === CONFIG.uavStreak) reward = 'uav'
     if (!reward) return
     this.game.events.emit('killstreak:earned', { actor: killer, streak: reward })
@@ -172,25 +294,86 @@ export class GameMode {
     else window.setTimeout(() => this.phase === 'playing' && this.activateStreak(killer, reward), 1500 + Math.random() * 2500)
   }
 
-  private activateStreak(actor: Actor, streak: 'uav' | 'airstrike') {
-    if (streak === 'uav') {
-      const team = actor.team
-      this.uavUntil[team] = Math.max(this.uavUntil[team], this.game.time) + CONFIG.uavDuration
+  activateStreak(actor: Actor, streak: StreakId) {
+    if (streak !== 'uav') return
+    const team = actor.team
+    if (!this.isTeamMode) {
+      const until = Math.max(this.uavActorUntil[actor.id] ?? 0, this.game.time) + CONFIG.uavDuration
+      this.uavActorUntil[actor.id] = until
       this.game.events.emit('killstreak:used', { actor, streak, team })
-      this.game.events.emit('uav:changed', { team, active: true, until: this.uavUntil[team] })
+      if (actor.isPlayer) this.game.events.emit('uav:changed', { team, active: true, until })
+      return
     }
+    this.uavUntil[team] = Math.max(this.uavUntil[team], this.game.time) + CONFIG.uavDuration
+    this.game.events.emit('killstreak:used', { actor, streak, team })
+    this.game.events.emit('uav:changed', { team, active: true, until: this.uavUntil[team] })
   }
 
-  private end() {
+  // ─── Match end ────────────────────────────────────────────────────────────
+
+  /** End the match. Team modes pass the winning team; FFA passes the winning actor (null = tie). */
+  endMatch(winner: Team | 'draw', winnerActor: Actor | null = null) {
+    if (this.phase === 'ended') return
+    this.winner = winner
+    this.winnerActor = winnerActor
+    this.placingIds = this.rankActors().map((a) => a.id)
+    this.respawnTimers.clear()
+    this.setPhase('ended', winner)
+  }
+
+  /** Winner by team score (draw on a tie). */
+  endByScore() {
     const a = this.score.tf141
     const b = this.score.opfor
-    this.winner = a === b ? 'draw' : a > b ? 'tf141' : 'opfor'
-    this.setPhase('ended', this.winner)
+    this.endMatch(a === b ? 'draw' : a > b ? 'tf141' : 'opfor')
   }
 
-  /** Pick the safest spawn for this actor's team and spawn it. */
+  // ─── Objective API (S&D; harmless no-ops in other modes) ───────────────────
+
+  /** True if `actor` carries the bomb and stands inside a bomb site (S&D attackers). */
+  wantsPlant(actor: Actor): boolean {
+    return this.rules.wantsPlant(actor)
+  }
+
+  /** True if `actor` is a defender close enough to the planted bomb to defuse it. */
+  canDefuse(actor: Actor): boolean {
+    return this.rules.canDefuse(actor)
+  }
+
+  /** Start planting (~5 s). The actor must stay inside the site and (nearly) still; returns false if not allowed. */
+  beginPlant(actor: Actor): boolean {
+    return this.rules.beginPlant(actor)
+  }
+
+  /** Start defusing (~7.5 s). The actor must stay by the bomb and (nearly) still. */
+  beginDefuse(actor: Actor): boolean {
+    return this.rules.beginDefuse(actor)
+  }
+
+  /** Abort the actor's in-progress plant or defuse. */
+  cancel(actor: Actor) {
+    this.rules.cancel(actor)
+  }
+
+  /** "Use" key: plants or defuses whichever applies. */
+  use(actor: Actor): boolean {
+    return this.beginPlant(actor) || this.beginDefuse(actor)
+  }
+
+  /** Who a dead actor should spectate (S&D): alive teammates (anyone in FFA), cycled by `index`. Null if none. */
+  spectateTarget(actor: Actor, index = 0): Actor | null {
+    const pool = this.game.actors.filter((a) => a !== actor && a.alive && !this.isEnemy(actor, a))
+    const list = pool.length || this.isTeamMode ? pool : this.game.actors.filter((a) => a !== actor && a.alive)
+    if (!list.length) return null
+    list.sort((a, b) => a.id - b.id)
+    return list[((index % list.length) + list.length) % list.length]!
+  }
+
+  // ─── Spawning ─────────────────────────────────────────────────────────────
+
+  /** Pick a spawn via the mode rules and spawn the actor there. */
   spawnActor(actor: Actor, initial = false) {
-    const spawn = this.chooseSpawn(actor.team, initial)
+    const spawn = this.rules.chooseSpawn(actor, initial)
     this.lastSpawnUse.set(spawn, this.game.time)
     _p.copy(spawn.position)
     // Small jitter so simultaneous initial spawns do not overlap.
@@ -198,6 +381,7 @@ export class GameMode {
       _p.x += (Math.random() - 0.5) * 0.6
       _p.z += (Math.random() - 0.5) * 0.6
     }
+    this.respawnTimers.delete(actor.id)
     actor.health = actor.maxHealth
     actor.alive = true
     actor.timeSinceDamage = 99
@@ -205,43 +389,76 @@ export class GameMode {
     this.game.events.emit('actor:spawned', { actor })
   }
 
-  private chooseSpawn(team: Team, initial: boolean): SpawnPoint {
-    const spawns = this.game.map.spawns
-    const own = spawns.filter((s) => s.team === team)
-    const any = spawns.filter((s) => s.team === 'any')
-    if (initial && own.length) {
-      // Initial spawns: cycle through the team's base spawns.
-      const sorted = own.slice().sort((x, y) => (this.lastSpawnUse.get(x) ?? -1) - (this.lastSpawnUse.get(y) ?? -1))
-      return sorted[0]!
+  // ─── Net snapshot ─────────────────────────────────────────────────────────
+
+  getNetState(): ModeNetState {
+    const b = this.bomb
+    return {
+      id: this.id,
+      phase: this.phase,
+      round: this.round,
+      score: { ...this.score },
+      timeLeft: this.timeLeft,
+      introLeft: this.introLeft,
+      winner: this.winner,
+      winnerActorId: this.winnerActor?.id ?? null,
+      placings: this.placingIds.slice(),
+      uavUntil: { ...this.uavUntil },
+      uavActorUntil: { ...this.uavActorUntil },
+      respawn: [...this.respawnTimers],
+      objectives: this.objectives.map((o) => ({
+        id: o.id, owner: o.owner, capturingTeam: o.capturingTeam, progressTeam: o.progressTeam, progress: o.progress, contested: o.contested,
+      })),
+      bomb: b && {
+        attackers: b.attackers, carrierId: b.carrierId, plantingId: b.plantingId, defusingId: b.defusingId,
+        position: [b.position.x, b.position.y, b.position.z], planted: b.planted, site: b.site, fuseLeft: b.fuseLeft,
+        plantProgress: b.plantProgress, defuseProgress: b.defuseProgress,
+      },
+      rules: this.rules.getNetState(),
     }
-    const candidates = [...own, ...any]
-    const enemies = this.game.actors.filter((a) => a.alive && a.team === otherTeam(team))
-    const friends = this.game.actors.filter((a) => a.alive && a.team === team)
-    let best = candidates[0]!
-    let bestScore = -Infinity
-    for (const s of candidates) {
-      let score = 0
-      _p.copy(s.position).setY(s.position.y + 1.6)
-      for (const e of enemies) {
-        const d = e.position.distanceTo(s.position)
-        score += Math.min(d, 30) * 0.8
-        if (d < 10) score -= 60
-        e.getEyePosition(_eye)
-        if (d < 45 && this.game.collision.lineOfSight(_eye, _p)) score -= 80
-      }
-      for (const f of friends) {
-        const d = f.position.distanceTo(s.position)
-        if (d < 14) score += 8
-      }
-      const lastUse = this.lastSpawnUse.get(s)
-      if (lastUse !== undefined && this.game.time - lastUse < 6) score -= 40
-      score += Math.random() * 6
-      if (score > bestScore) {
-        bestScore = score
-        best = s
-      }
+  }
+
+  /** Client side: mirror the host's snapshot (does not emit events or spawn actors). */
+  applyNetState(s: ModeNetState) {
+    if (s.id !== this.id || this.rules.id !== s.id) {
+      this.id = s.id
+      this.rules = createRules(s.id, this)
+      this.rules.begin()
     }
-    return best
+    this.phase = s.phase
+    this.round = s.round
+    this.score = { ...s.score }
+    this.timeLeft = s.timeLeft
+    this.introLeft = s.introLeft
+    this.winner = s.winner
+    this.winnerActor = this.actorById(s.winnerActorId)
+    this.placingIds = s.placings.slice()
+    this.uavUntil = { ...s.uavUntil }
+    this.uavActorUntil = { ...s.uavActorUntil }
+    this.respawnTimers = new Map(s.respawn)
+    for (const o of s.objectives) {
+      const t = this.objectives.find((x) => x.id === o.id)
+      if (t) Object.assign(t, o)
+    }
+    if (s.bomb && this.bomb) {
+      const b = this.bomb
+      Object.assign(b, { ...s.bomb, position: b.position.set(...s.bomb.position) })
+      b.carrier = this.actorById(s.bomb.carrierId)
+    }
+    this.rules.applyNetState(s.rules)
+  }
+}
+
+function createRules(id: GameModeId, mode: GameMode): ModeRules {
+  switch (id) {
+    case 'ffa':
+      return new FreeForAllRules(mode)
+    case 'dom':
+      return new DominationRules(mode)
+    case 'sd':
+      return new SearchDestroyRules(mode)
+    default:
+      return new TeamDeathmatchRules(mode)
   }
 }
 

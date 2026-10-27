@@ -14,7 +14,8 @@ import { CONFIG } from './config'
 import { EventBus } from './events'
 import { Input } from './input'
 import { damp } from './math'
-import type { Actor, Loadout, MapData, MatchSettings, NetRole } from './types'
+import type { Actor, Loadout, MapData, MatchSettings, NetRole, Team } from './types'
+import { otherTeam } from './types'
 
 export interface Settings {
   sensitivity: number
@@ -118,13 +119,45 @@ export class Game {
     this.combat.clearGrenades()
     this.bots.clear()
     this.player.setLoadout(loadout)
-    const bots = this.bots.createTeams(this.player.team)
+    this.mode.id = match.mode
+    this.bots.difficulty = match.botDifficulty
+    const bots = this.createBots(match)
     this.actors = [this.player, ...bots]
     this.time = 0
     this.paused = false
     this.mode.begin()
     this.input.enabled = true
     this.input.lock()
+  }
+
+  /**
+   * Bot fill from match.botCount. Team modes: split across teams, the player's team
+   * gets one fewer when uneven. FFA: everyone is an enemy (team only picks the model).
+   */
+  private createBots(match: MatchSettings): Actor[] {
+    const mgr = this.bots as BotManager & { createForMatch?: (m: MatchSettings, playerTeam: Team) => Actor[] }
+    if (typeof mgr.createForMatch === 'function') return mgr.createForMatch(match, this.player.team)
+    // Fallback until the AI's createForMatch lands: trim the stock 5v6 squads.
+    this.bots.createTeams(this.player.team)
+    const count = Math.max(0, Math.round(match.botCount))
+    const want: Record<Team, number> =
+      match.mode === 'ffa'
+        ? { tf141: Math.floor(count / 2), opfor: Math.ceil(count / 2) }
+        : { [this.player.team]: Math.floor(count / 2), [otherTeam(this.player.team)]: Math.ceil(count / 2) } as Record<Team, number>
+    const keep: Record<Team, number> = { tf141: 0, opfor: 0 }
+    const list = this.bots.bots
+    for (let i = 0; i < list.length; ) {
+      const b = list[i]!
+      if (keep[b.team] < want[b.team]) {
+        keep[b.team]++
+        i++
+      } else {
+        ;(b as Actor & { dispose?: () => void }).dispose?.()
+        list.splice(i, 1)
+      }
+    }
+    if (keep.tf141 < want.tf141 || keep.opfor < want.opfor) console.warn('[mode] bot fill capped by createTeams (needs bots.createForMatch)', want, keep)
+    return list.slice()
   }
 
   pause() {

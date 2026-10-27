@@ -168,9 +168,15 @@ export interface Callout {
 }
 
 export interface SpawnPoint {
+  /**
+   * Team base / 'any'. In Search & Destroy the labels mean sides, not teams:
+   * 'tf141' spawns are the ATTACKING side (near bombSpawn), 'opfor' the DEFENDING side (near bombSites).
+   */
   team: Team | 'any'
   position: Vector3
   yaw: number
+  /** Restrict this spawn to these game modes (omit = every mode). */
+  modes?: GameModeId[]
 }
 
 export interface Environment {
@@ -240,6 +246,8 @@ export interface ObjectiveState extends ObjectivePoint {
   /** Capture progress 0..1 towards capturingTeam. */
   progress: number
   contested: boolean
+  /** Team the current `progress` belongs to (kept while contested/decaying; capturingTeam is null then). */
+  progressTeam: Team | null
 }
 
 /** Live Search & Destroy bomb state, owned by the game mode. */
@@ -255,6 +263,10 @@ export interface BombState {
   /** 0..1 progress of an in-progress plant or defuse (0 when idle). */
   plantProgress: number
   defuseProgress: number
+  /** Net-friendly mirrors of the actors involved (actor ids, null when none). */
+  carrierId: number | null
+  plantingId: number | null
+  defusingId: number | null
 }
 
 /** Lobby / custom-game settings for one match. */
@@ -295,6 +307,8 @@ export interface InputState {
   fragHeld: boolean
   meleePressed: boolean // V / E
   usePressed: boolean // F
+  /** F held this frame (plant/defuse). Optional so synthetic input states need not set it. */
+  useHeld?: boolean
   scoreboard: boolean // Tab held
   pausePressed: boolean // Esc / P
   killstreakPressed: boolean // 4
