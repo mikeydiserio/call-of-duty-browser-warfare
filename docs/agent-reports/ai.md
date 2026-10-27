@@ -8,11 +8,11 @@
 - **Animation:** IK legs with planted feet, strafe hip-twist, walk/run/sprint/crouch/prone. Arm IK onto the gun grips and aim-driven spine. Also recoil, flinch, reload, throw, knife, weapon switch, ladder climb and jump.
 - **Death:** verlet ragdoll with a damage-direction impulse (bigger for headshots and explosions). The gun drops and the corpse sinks after 10 s.
 - **Hitboxes:** bone-following capsules with a bounding-sphere reject first. Zones verified by rays from four sides.
-- **Nav:** BVH column sampling, capsule fit, and step/mantle/drop/ladder links, pruned to nodes reachable from the spawns. Plus cover masks, sniper perches, A*, string-pull, stuck repath and avoidance.
+- **Nav:** BVH column sampling, capsule fit, and step/mantle/drop/ladder links, pruned to nodes reachable from the spawns. Plus cover masks, sniper perches, A* and stuck repath.
 - **Brain:**
   - Senses: 124° FOV with reaction times of 0.24–0.72 s; hearing; awareness of who hit them; UAV.
   - Aim error that converges over time, with weapon-paced bursts.
-  - ADAD strafing, crouch-peeking, retreating to cover, flanking.
+  - ADAD strafing, crouch-peeking, cover, flanking.
   - Hotspot patrols (tower weighted); snipers camp prone on perches.
   - Frags, knife, pistol swap; flee cooking grenades; never shoot through teammates.
 - **Gamertags** in MW2-lobby style.
