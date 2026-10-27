@@ -17,6 +17,7 @@ import {
   type Texture,
   Uint16BufferAttribute,
   CustomBlending,
+  DoubleSide,
   OneFactor,
   OneMinusSrcAlphaFactor,
   AddEquation,
@@ -133,8 +134,17 @@ void main(){
   float c = cos(aRotKind.x), s = sin(aRotKind.x);
   vec2 q = vec2(c * position.x - s * position.y, s * position.x + c * position.y);
   mv.xy += q * aPosSize.w;
+  // Cheap "soft particle" substitute: pull big puffs toward the camera by part of their radius
+  // so they don't slice visibly through the ground / walls (never past the near zone).
   vNear = smoothstep(0.12, 1.4, -mv.z);
   gl_Position = projectionMatrix * mv;
+  // Cheap "soft particle" substitute: bias big puffs' depth toward the camera by part of their
+  // radius so they don't slice visibly through the ground / walls (screen footprint unchanged).
+  if (aRotKind.y < 1.5) {
+    float pull = min(aPosSize.w * 0.45, max(0.0, -mv.z - 0.6));
+    vec4 pc = projectionMatrix * vec4(mv.xyz * ((-mv.z - pull) / -mv.z), 1.0);
+    gl_Position.z = pc.z / pc.w * gl_Position.w;
+  }
 }
 `
 
@@ -157,7 +167,6 @@ void main(){
   float add = vRK.w;
   vec3 rgb;
   float a;
-  float extraDark = 0.0;
 
   if (kind < 0.5) {                       // soft puff (smoke / dust)
     a = tex.r * vCol.a;
@@ -172,10 +181,10 @@ void main(){
     vec3 c = mix(vec3(0.20, 0.025, 0.0), vec3(1.0, 0.28, 0.03), smoothstep(0.0, 0.40, t));
     c = mix(c, vec3(1.0, 0.68, 0.22), smoothstep(0.32, 0.78, t));
     c = mix(c, vec3(1.0, 0.95, 0.80), smoothstep(0.75, 1.2, t));
-    rgb = c * (1.0 + 2.6 * smoothstep(0.35, 1.2, t)) * vCol.rgb;
+    rgb = c * (1.0 + 1.4 * smoothstep(0.55, 1.2, t)) * vCol.rgb;
     a *= vCol.a;
-    extraDark = (1.0 - smoothstep(0.0, 0.45, t)) * 0.35;
-    add = 1.0 - extraDark;
+    // hot cores add light, cooler sooty edges occlude like smoke
+    add = mix(0.15, 0.85, smoothstep(0.25, 0.9, t));
   } else if (kind < 2.5) {                // hard dot (grains / chips)
     a = (1.0 - smoothstep(0.62, 0.92, r)) * vCol.a;
     rgb = vCol.rgb;
@@ -233,6 +242,8 @@ void main(){
   side = sl > 1e-4 ? side / sl : vec3(1.0, 0.0, 0.0);
   float w = max(aParam.x, 1.6 * uPixelWorld * -mid.z);
   vec3 p = mix(a.xyz, b.xyz, position.y + 0.5) + side * position.x * w;
+  // fade the part of a ribbon that passes right by the lens (tracers fired at the player)
+  vCol.a *= smoothstep(0.35, 2.5, -p.z);
   // slight extension so very short streaks stay visible
   p += t * (position.y) * w * 0.5;
   gl_Position = projectionMatrix * vec4(p, 1.0);
@@ -648,6 +659,8 @@ export class StreakBatch {
       vertexShader: STREAK_VERT,
       fragmentShader: STREAK_FRAG,
       uniforms: { uPixelWorld: { value: 0.001 } },
+      // ribbon winding flips with travel direction — never cull
+      side: DoubleSide,
       transparent: true,
       depthWrite: false,
       depthTest: true,
