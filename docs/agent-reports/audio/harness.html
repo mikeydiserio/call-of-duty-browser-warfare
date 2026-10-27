@@ -1,0 +1,17 @@
+<!doctype html><html><body style="background:#111;color:#ccc;font:12px monospace"><canvas id="c"></canvas>
+<script type="module">
+import { PerspectiveCamera, Vector3 } from 'three'
+import { EventBus } from '/src/core/events.ts'
+import { AudioEngine } from '/src/audio/audio.ts'
+const camera = new PerspectiveCamera(70, 1, 0.1, 1000)
+camera.position.set(0, 1.7, 0)
+const player = { id: 1, isPlayer: true, team: 'tf141', alive: true, health: 100, position: new Vector3(0, 0, 0) }
+const game = { events: new EventBus(), render: { camera }, mode: { phase: 'menu' }, paused: false, player }
+window.game = game
+game.audio = new AudioEngine(game)
+let last = performance.now()
+function loop() { const n = performance.now(); game.audio.update((n - last) / 1000); last = n; requestAnimationFrame(loop) }
+loop()
+setInterval(() => { const n = performance.now(); if (n - last > 200) { game.audio.update((n - last) / 1000); last = n } }, 100)
+window.V = Vector3
+</script></body></html>

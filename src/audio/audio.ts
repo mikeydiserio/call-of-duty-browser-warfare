@@ -343,7 +343,7 @@ export class AudioEngine {
     const curve = new Float32Array(2048)
     for (let i = 0; i < curve.length; i++) {
       const x = (i / (curve.length - 1)) * 2 - 1
-      curve[i] = Math.tanh(x * 1.15) / Math.tanh(1.15) * 0.98
+      curve[i] = Math.tanh(x * 1.15) / Math.tanh(1.15) * 0.95
     }
     shaper.curve = curve
     shaper.oversample = '2x'
