@@ -272,6 +272,18 @@ export class Bot implements Actor {
   spawn(position: Vector3, yaw: number) {
     const col = this.game.collision
     this.position.copy(position)
+    // Don't stack inside a squadmate who spawned on the same point.
+    if (this.crowded(position) && this.nav.count) {
+      for (let t = 0; t < 8; t++) {
+        const k = this.nav.randomNear(position.x, position.z, 1.5 + t * 0.4)
+        if (k < 0 || Math.abs(this.nav.py[k]! - position.y) > 0.5) continue
+        _v.set(this.nav.px[k]!, this.nav.py[k]!, this.nav.pz[k]!)
+        if (!this.crowded(_v)) {
+          this.position.copy(_v)
+          break
+        }
+      }
+    }
     const gy = col.groundHeight(position.x, position.z, position.y + 1.5, 4)
     if (Number.isFinite(gy)) this.position.y = gy
     this.lastSafe.copy(this.position)
@@ -326,6 +338,16 @@ export class Bot implements Actor {
     this.rig.root.visible = true
     this.animAcc = 1
     this.animate(0.016, true)
+  }
+
+  private crowded(p: Vector3): boolean {
+    for (const a of this.game.actors) {
+      if (a === this || !a.alive) continue
+      const dx = a.position.x - p.x
+      const dz = a.position.z - p.z
+      if (dx * dx + dz * dz < 0.8 * 0.8 && Math.abs(a.position.y - p.y) < 1.5) return true
+    }
+    return false
   }
 
   // ─── Setup ────────────────────────────────────────────────────────────────
@@ -585,6 +607,11 @@ export class Bot implements Actor {
     // Patrol / camp. Hunters pause briefly at each goal to check angles.
     this.goalT -= 0.3
     const arrived = this.pathLen > 0 && this.pathI >= this.pathLen
+    if (arrived && this.mode === 'camp' && this.stance === 0 && this.wantStance === 0) {
+      // Settle on the perch: prone if there is room, else crouch.
+      const n = this.nav.nearest(this.position.x, this.position.y, this.position.z, 1.5)
+      this.wantStance = n >= 0 && this.nav.cover[n]! < 0.5 && Math.random() < 0.55 ? 2 : 1
+    }
     if (arrived && this.mode === 'hunt' && this.lingerT <= 0) this.lingerT = 1.5 + Math.random() * 3.5
     if (this.lingerT > 0) {
       this.lingerT -= 0.3
@@ -627,7 +654,8 @@ export class Bot implements Actor {
       const n = this.nav.nearest(this.position.x, this.position.y, this.position.z, 1.5)
       const covered = n >= 0 && this.coverToward(n, t.position)
       const p = covered ? 0.65 : this.profile.sniper ? 0.5 : 0.18
-      this.wantStance = Math.random() < p && d > 6 ? 1 : 0
+      // A sniper already prone on a perch stays down.
+      if (!(this.stance === 2 && this.profile.sniper)) this.wantStance = Math.random() < p && d > 6 ? 1 : 0
     }
     // Close to target and no ammo / fast: knife handled in combat().
     // Pistol swap when primary dry at close range.
@@ -727,11 +755,24 @@ export class Bot implements Actor {
 
   private considerGrenade(m: Memory, now: number) {
     if (this.grenades <= 0 || this.grenadeCd > 0 || this.action !== 'none' || m.visible) return
-    if (now - m.lastSeen > 4 || now - m.lastSeen < 0.8) return
+    // Fresh intel: an enemy that ducked out of sight, or one heard firing nearby (camper).
+    const seen = now - m.lastSeen
+    const heard = now - m.lastHeard
+    if (!((seen > 0.6 && seen < 4) || heard < 1.5)) return
     const d = m.lastKnown.distanceTo(this.position)
-    if (d < 9 || d > 30) return
-    if (Math.random() > 0.3 + this.profile.aggression * 0.25) {
+    if (d < 9 || d > 32) return
+    if (Math.random() > 0.4 + this.profile.aggression * 0.35) {
       this.grenadeCd = 2
+      return
+    }
+    // Need an open arc out of here (no wall/ceiling right in front).
+    this.getEyePosition(_eye)
+    const dx = m.lastKnown.x - this.position.x
+    const dz = m.lastKnown.z - this.position.z
+    const h = Math.hypot(dx, dz) || 1
+    _dir.set((dx / h) * 0.79, 0.62, (dz / h) * 0.79)
+    if (this.game.collision.raycast(_eye, _dir, 3.5)) {
+      this.grenadeCd = 1.5
       return
     }
     this.startThrow(m.lastKnown)
@@ -1180,7 +1221,7 @@ export class Bot implements Actor {
       const wantSprint = calm && remaining > 6 && this.action !== 'reload' && this.wantStance === 0 && (this.mode === 'hunt' || this.mode === 'pursue' || this.mode === 'retreat' || this.mode === 'camp')
       this.sprinting = wantSprint
       this.wishSpeed = (wantSprint ? CONFIG.sprintSpeed : engaged ? CONFIG.walkSpeed * 0.7 : CONFIG.walkSpeed) * mob
-      if (!wantSprint && this.wantStance === 1 && !engaged) this.wantStance = 0
+      if (!wantSprint && this.wantStance !== 0 && !engaged) this.wantStance = 0
       // Stuck detection.
       this.stuckT += dt
       if (this.stuckT > 1.1) {
@@ -1410,7 +1451,7 @@ export class Bot implements Actor {
     const p = this.position
     // Stance (with headroom check before standing).
     if (this.wantStance !== this.stance) {
-      if (this.wantStance < this.stance && !this.fits(0)) {
+      if (this.wantStance < this.stance && !this.fits(this.wantStance === 2 ? 1 : this.wantStance)) {
         /* blocked, stay low */
       } else this.stance = this.wantStance
     }
@@ -1462,7 +1503,8 @@ export class Bot implements Actor {
     }
 
     // Horizontal acceleration toward the wish velocity.
-    const speedMul = this.stance === 1 && !this.sprinting ? Math.min(1, CONFIG.crouchSpeed / Math.max(0.1, this.wishSpeed)) : 1
+    const low = this.stance === 2 ? CONFIG.proneSpeed : CONFIG.crouchSpeed
+    const speedMul = this.stance !== 0 && !this.sprinting ? Math.min(1, low / Math.max(0.1, this.wishSpeed)) : 1
     const tx = this.wish.x * this.wishSpeed * speedMul
     const tz = this.wish.z * this.wishSpeed * speedMul
     const accel = this.grounded ? (this.wishSpeed > 0.1 ? 38 : 30) : 4
@@ -1510,9 +1552,9 @@ export class Bot implements Actor {
   private resolve(): CapsuleResult {
     const p = this.position
     const r = CONFIG.capsuleRadius
-    const hgt = this.stance === 1 ? CONFIG.capsuleHeight[1] : CONFIG.capsuleHeight[0]
+    const hgt = CONFIG.capsuleHeight[this.stance]
     _a.set(p.x, p.y + r, p.z)
-    _b.set(p.x, p.y + hgt - r, p.z)
+    _b.set(p.x, p.y + Math.max(hgt - r, r + 0.02), p.z)
     const res = this.game.collision.resolveCapsule(_a, _b, r, this.cap)
     p.set(_a.x, _a.y - r, _a.z)
     return res
