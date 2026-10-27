@@ -17,6 +17,7 @@ import {
   type Texture,
   Uint16BufferAttribute,
   CustomBlending,
+  DoubleSide,
   OneFactor,
   OneMinusSrcAlphaFactor,
   AddEquation,
@@ -648,6 +649,8 @@ export class StreakBatch {
       vertexShader: STREAK_VERT,
       fragmentShader: STREAK_FRAG,
       uniforms: { uPixelWorld: { value: 0.001 } },
+      // ribbon winding flips with travel direction — never cull
+      side: DoubleSide,
       transparent: true,
       depthWrite: false,
       depthTest: true,
