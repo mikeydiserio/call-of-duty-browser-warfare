@@ -215,7 +215,8 @@ export class SoldierAnimator {
     b.chest.quaternion.setFromEuler(_e)
     _e.set(unlean * 0.1 + pitch * 0.15, tw2 * 0.1, 0, 'YXZ')
     b.neck.quaternion.setFromEuler(_e)
-    _e.set(unlean * 0.15 + pitch * 0.25 - this.sprintW * 0.1 + (climbing ? 0.35 : 0), tw2 * 0.05, 0, 'YXZ')
+    // Aiming: cheek weld (head dips and cants toward the stock).
+    _e.set(unlean * 0.15 + pitch * 0.25 - this.sprintW * 0.1 + (climbing ? 0.35 : 0) - this.aimW * 0.12, tw2 * 0.05 - this.aimW * 0.08, -this.aimW * 0.14, 'YXZ')
     b.head.quaternion.setFromEuler(_e)
 
     // Prone: tilt the whole body forward around the feet and slide back so the hips stay at the position.
@@ -366,7 +367,7 @@ export class SoldierAnimator {
     if (inp.action === 'reload') {
       const w = Math.sin(Math.min(1, t * 1.15) * Math.PI) // in/out envelope
       const tilt = clamp(w * 1.6, 0, 1)
-      _e.set(0.25, rootYaw + 0.35, -0.7, 'YXZ')
+      _e.set(-0.32, rootYaw + 0.4, -0.55, 'YXZ')
       _q.setFromEuler(_e)
       _e.set(0, rootYaw, 0, 'YXZ')
       _q2.setFromEuler(_e)
@@ -405,9 +406,9 @@ export class SoldierAnimator {
     const b = this.rig.bones
     const t = inp.actionT
     // Grip points in gun space (origin at the pistol grip, barrel −Z).
-    _gripR.set(0, -0.035, 0.035)
-    if (inp.pistol) _gripL.set(0.01, -0.06, 0.04)
-    else _gripL.set(-0.005, -0.02, -0.3)
+    _gripR.set(0.005, -0.015, 0.07)
+    if (inp.pistol) _gripL.set(-0.02, -0.05, 0.06)
+    else _gripL.set(-0.05, -0.065, -0.28)
     _gripR.applyQuaternion(this.gunQuat).add(this.gunPos)
     _gripL.applyQuaternion(this.gunQuat).add(this.gunPos)
 
@@ -485,10 +486,10 @@ export class SoldierAnimator {
       const free = side === 0 ? lHandFree : rHandFree
       if (!free && !inp.lod) {
         if (side === 1 || inp.pistol) {
-          _down.set(0, -1, -0.25).applyQuaternion(this.gunQuat)
+          _down.set(0, -1, -0.45).applyQuaternion(this.gunQuat)
           _fwd.set(0, 0, -1).applyQuaternion(this.gunQuat)
         } else {
-          _down.set(0.55, -1, 0).applyQuaternion(this.gunQuat)
+          _down.set(0.8, -0.6, 0).applyQuaternion(this.gunQuat)
           _fwd.set(0, 0, -1).applyQuaternion(this.gunQuat)
         }
       } else {

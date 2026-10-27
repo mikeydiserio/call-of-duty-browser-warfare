@@ -133,6 +133,10 @@ export class Bot implements Actor {
   private readonly stuckPos = new Vector3()
   private repathT = 0
   private flankNode = -1
+  private campNode = -1
+  private scanT = 0
+  private scanYaw = 0
+  private lingerT = 0
 
   // Brain
   private mode: Mode = 'hunt'
@@ -312,6 +316,8 @@ export class Bot implements Actor {
     this.targetMem = null
     this.mode = this.profile.sniper ? 'camp' : 'hunt'
     this.hasGoal = false
+    this.campNode = -1
+    this.lingerT = 0
     this.pathLen = 0
     this.goalT = 0
     this.thinkT = 0.1 + Math.random() * 0.3
@@ -429,6 +435,8 @@ export class Bot implements Actor {
         // Already alerted toward that spot? faster.
         if (now - m.lastHeard < 3 || now - m.lastSeen < 2) r *= 0.55
         m.spotT = now + r
+        // Re-acquiring after a break of LOS: aim has to settle again.
+        if (m === this.targetMem) this.aimTime *= 0.4
       }
     }
     if (seen) {
@@ -546,7 +554,8 @@ export class Bot implements Actor {
       this.beginRetreat()
       return
     }
-    if (fresh && freshT > now - 7) {
+    const holdAngle = this.profile.sniper && this.slot === 'primary' && fresh !== null && fresh.lastKnown.distanceTo(this.position) > 15
+    if (fresh && freshT > now - 7 && !holdAngle) {
       const seenRecently = fresh.lastSeen > now - 7
       const want: Mode = seenRecently ? 'pursue' : 'investigate'
       if (this.mode !== want || !this.hasGoal || fresh.lastKnown.distanceToSquared(this.goal) > 16) {
@@ -566,10 +575,23 @@ export class Bot implements Actor {
     if (this.mode === 'pursue' || this.mode === 'investigate' || this.mode === 'engage') {
       this.mode = this.profile.sniper ? 'camp' : 'hunt'
       this.hasGoal = false
+      // Snipers return to their perch.
+      if (this.profile.sniper && this.campNode >= 0 && this.goalT > 0) this.setGoalNode(this.campNode)
     }
-    // Patrol / camp.
+    if (holdAngle && fresh) {
+      // Watch the lane where the enemy was.
+      this.campYaw = yawFromDirection(fresh.lastKnown.x - this.position.x, fresh.lastKnown.z - this.position.z)
+    }
+    // Patrol / camp. Hunters pause briefly at each goal to check angles.
     this.goalT -= 0.3
-    if (!this.hasGoal || this.goalT <= 0 || (this.pathLen > 0 && this.pathI >= this.pathLen && this.mode === 'hunt')) {
+    const arrived = this.pathLen > 0 && this.pathI >= this.pathLen
+    if (arrived && this.mode === 'hunt' && this.lingerT <= 0) this.lingerT = 1.5 + Math.random() * 3.5
+    if (this.lingerT > 0) {
+      this.lingerT -= 0.3
+      if (this.lingerT <= 0) this.hasGoal = false
+    }
+    if (!this.hasGoal || this.goalT <= 0) {
+      this.lingerT = 0
       this.pickPatrolGoal()
     }
   }
@@ -650,9 +672,12 @@ export class Bot implements Actor {
     const now = this.game.time
     if (this.profile.sniper && this.mode === 'camp' && nav.sniperSpots.length) {
       // Sniper: move between long-sightline perches.
-      let k = nav.sniperSpots[Math.floor(Math.random() * nav.sniperSpots.length)]!
-      for (let t = 0; t < 4 && this.friendNear(nav.px[k]!, nav.pz[k]!, 6); t++) k = nav.sniperSpots[Math.floor(Math.random() * nav.sniperSpots.length)]!
-      this.goalT = 25 + Math.random() * 25
+      // Biased toward the best-scored (usually elevated) perches.
+      const spot = () => nav.sniperSpots[Math.floor(Math.random() * Math.random() * nav.sniperSpots.length)]!
+      let k = spot()
+      for (let t = 0; t < 4 && this.friendNear(nav.px[k]!, nav.pz[k]!, 6); t++) k = spot()
+      this.goalT = 30 + Math.random() * 30
+      this.campNode = k
       this.setGoalNode(k)
       return
     }
@@ -777,6 +802,23 @@ export class Bot implements Actor {
       wantYaw += Math.sin(now * 0.7 + this.aimSeed) * 0.35
       wantPitch = 0
       rate = 3.5
+    } else {
+      // Idle: scan open directions (never stare into a wall).
+      this.scanT -= dt
+      if (this.scanT <= 0) {
+        this.scanT = 1.2 + Math.random() * 2
+        const n = this.nav.nearest(this.position.x, this.position.y, this.position.z, 2)
+        const mask = n >= 0 ? this.nav.highMask[n]! : 0
+        for (let t = 0; t < 8; t++) {
+          const d = Math.floor(Math.random() * 8)
+          if (mask & (1 << d)) continue
+          const [dx, dz] = DIRS8[d]!
+          this.scanYaw = yawFromDirection(dx, dz) + (Math.random() - 0.5) * 0.6
+          break
+        }
+      }
+      wantYaw = this.scanYaw
+      rate = 2.2
     }
     this.turn(wantYaw, wantPitch, rate, dt)
 
@@ -825,6 +867,8 @@ export class Bot implements Actor {
     else if (t.stance === 2) e *= 1.35
     if (!this.grounded) e *= 2
     e *= 1 + this.flinch * 0.8
+    // Scoped rifles settle much tighter once held still.
+    if (this.def.class === 'sniper') e *= mySpeed < 0.5 ? 0.45 : 1.6
     void dist
     return e
   }
@@ -1156,9 +1200,6 @@ export class Bot implements Actor {
       }
       this.repathT -= dt
       if (this.repathT <= 0) this.repath()
-    } else if (!this.hasGoal || this.pathI >= this.pathLen) {
-      // Arrived.
-      if (this.mode === 'hunt') this.hasGoal = false
     }
 
     if (engaged) {
@@ -1289,7 +1330,6 @@ export class Bot implements Actor {
     const a = Math.atan2(threat.z - nav.pz[node]!, threat.x - nav.px[node]!)
     let di = Math.round(a / (Math.PI / 4))
     di = ((di % 8) + 8) % 8
-    void DIRS8
     return (nav.coverMask[node]! & (1 << di)) !== 0
   }
 

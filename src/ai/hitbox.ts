@@ -28,8 +28,8 @@ const SHAPES: Shape[] = [
   { a: 'uarmR', b: 'farmR', off: [0, 0, 0], offB: [0, 0, 0], r: 0.068, zone: 'arms' },
   { a: 'farmL', b: 'handL', off: [0, 0, 0], offB: [0, -0.06, 0], r: 0.058, zone: 'arms' },
   { a: 'farmR', b: 'handR', off: [0, 0, 0], offB: [0, -0.06, 0], r: 0.058, zone: 'arms' },
-  { a: 'thighL', b: 'shinL', off: [0, 0, 0], offB: [0, 0, 0], r: 0.1, zone: 'legs' },
-  { a: 'thighR', b: 'shinR', off: [0, 0, 0], offB: [0, 0, 0], r: 0.1, zone: 'legs' },
+  { a: 'thighL', b: 'shinL', off: [0, -0.09, 0], offB: [0, 0, 0], r: 0.1, zone: 'legs' },
+  { a: 'thighR', b: 'shinR', off: [0, -0.09, 0], offB: [0, 0, 0], r: 0.1, zone: 'legs' },
   { a: 'shinL', b: 'footL', off: [0, 0, 0], offB: [0, -0.02, -0.06], r: 0.078, zone: 'legs' },
   { a: 'shinR', b: 'footR', off: [0, 0, 0], offB: [0, -0.02, -0.06], r: 0.078, zone: 'legs' },
 ]

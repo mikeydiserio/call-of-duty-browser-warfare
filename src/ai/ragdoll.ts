@@ -127,9 +127,9 @@ export class Ragdoll {
       moved = Math.max(moved, this.step())
     }
     // Sleep once settled.
-    if (moved < 0.0025) this.sleepT += dt
+    if (moved < 0.003) this.sleepT += dt
     else this.sleepT = 0
-    if (this.sleepT > 0.6 || this.age > 6) this.asleep = true
+    if (this.sleepT > 0.45 || this.age > 5) this.asleep = true
     this.pose()
   }
 
@@ -170,7 +170,8 @@ export class Ragdoll {
         pc.addScaledVector(_d, -diff)
       }
     }
-    // Collision: sweep prev→pos, then a short downward probe.
+    // Collision: sweep prev→pos (extended by the particle radius, so resting
+    // particles keep touching the floor).
     for (let i = 0; i < N; i++) {
       const p = this.pos[i]!
       const q = this.prev[i]!
@@ -178,25 +179,16 @@ export class Ragdoll {
       _d.subVectors(p, q)
       const len = _d.length()
       maxMove = Math.max(maxMove, len)
-      if (len > 1e-5) {
-        _d.divideScalar(len)
-        const hit = this.world.raycast(q, _d, len + r)
-        if (hit) {
-          p.copy(hit.point).addScaledVector(hit.normal, r)
-          // Friction: kill most tangential velocity, no bounce.
-          _v.subVectors(p, q).multiplyScalar(0.45)
-          q.copy(p).sub(_v)
-          continue
-        }
-      }
-      _o.set(p.x, p.y + 0.35, p.z)
-      _v.set(0, -1, 0)
-      const dn = this.world.raycast(_o, _v, 0.35 + r)
-      if (dn && dn.point.y + r > p.y) {
-        p.y = dn.point.y + r
-        q.x = p.x - (p.x - q.x) * 0.5
-        q.z = p.z - (p.z - q.z) * 0.5
-        if (q.y < p.y) q.y = p.y
+      if (len < 1e-5) continue
+      _d.divideScalar(len)
+      // Start slightly behind so a particle sitting on the floor still sees it.
+      _o.copy(q).addScaledVector(_d, -0.02)
+      const hit = this.world.raycast(_o, _d, len + r + 0.02)
+      if (hit) {
+        p.copy(hit.point).addScaledVector(hit.normal, r)
+        // Friction: kill most tangential velocity, no bounce.
+        _v.subVectors(p, q).multiplyScalar(0.45)
+        q.copy(p).sub(_v)
       }
     }
     return maxMove
