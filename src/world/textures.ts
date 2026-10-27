@@ -128,19 +128,21 @@ function sand(): PBR {
   const { A, B, W, C, CI } = getBank()
   const sandA: C3 = [210, 182, 136]
   const sandB: C3 = [176, 147, 104]
-  return bake(1024, 1024, 5, (u, v, p) => {
+  return bake(1024, 1024, 3.2, (u, v, p) => {
     const a = A.s(u, v)
     const a2 = A.s(u * 3 + 0.17, v * 3 + 0.43)
     const b = B.s(u * 2, v * 2)
     const warp = (A.s(u * 2, v * 2) - 0.5) * 5
     const r1 = Math.sin(TAU * (22 * u + 7 * v) + warp)
     const r2 = Math.sin(TAU * (94 * u + 31 * v) + warp * 2)
-    const ripple = r1 * 0.5 * sm(0.3, 0.7, a2) + r2 * 0.22
+    // wind ripples only in drifted patches; elsewhere packed, trampled sand
+    const drift = sm(0.58, 0.82, a2)
+    const ripple = r1 * 0.3 * drift + r2 * 0.05 * (0.4 + drift)
     const grain = W.at(u, v) - 0.5
     setMix(p, sandA, sandB, sm(0.25, 0.75, a * 0.7 + b * 0.3))
-    const k = 1 + ripple * 0.045 + grain * 0.08
+    const k = 1 + ripple * 0.05 + grain * 0.07 + (drift - 0.5) * 0.04
     shade(p, k)
-    let h = ripple * 0.35 + grain * 0.12 + b * 0.18
+    let h = ripple * 0.3 + grain * 0.1 + b * 0.35 + a * 0.25
     // pebbles
     const id = CI.at(u, v)
     if (id > 0.84) {
@@ -638,6 +640,7 @@ export interface TextureSet {
   barrelBlue: PBR
   barrelRed: PBR
   generator: PBR
+  panel: PBR
   tank: PBR
   sandbag: PBR
   chain: PBR
@@ -663,10 +666,10 @@ export function getTextures(): TextureSet {
       paint: [138, 142, 140],
       paint2: [112, 118, 118],
       under: [74, 70, 66],
-      wear: 0.62,
-      rustAmt: 0.62,
+      wear: 0.36,
+      rustAmt: 0.8,
       ridges: { n: 8, amp: 0.55 },
-      streak: [30, 3],
+      streak: [40, 1.2],
       nStr: 3.4,
       offset: 0.13,
     }),
@@ -676,10 +679,10 @@ export function getTextures(): TextureSet {
       paint: [176, 156, 120],
       paint2: [150, 134, 104],
       under: [72, 68, 62],
-      wear: 0.55,
-      rustAmt: 0.5,
+      wear: 0.34,
+      rustAmt: 0.75,
       ridges: { n: 8, amp: 0.55 },
-      streak: [26, 3],
+      streak: [36, 1.2],
       nStr: 3.4,
       offset: 0.41,
     }),
@@ -693,10 +696,10 @@ export function getTextures(): TextureSet {
       paint: [44, 82, 128],
       paint2: [74, 108, 146],
       under: [70, 64, 60],
-      wear: 0.5,
-      rustAmt: 0.6,
-      ridges: { n: 28, amp: 0.7, trap: true },
-      streak: [24, 1],
+      wear: 0.3,
+      rustAmt: 0.72,
+      ridges: { n: 11, amp: 0.25, trap: true },
+      streak: [30, 1],
       gradient: true,
       nStr: 3.4,
       offset: 0.27,
@@ -708,10 +711,10 @@ export function getTextures(): TextureSet {
       paint: [128, 40, 32],
       paint2: [158, 70, 52],
       under: [70, 62, 58],
-      wear: 0.5,
-      rustAmt: 0.62,
-      ridges: { n: 28, amp: 0.7, trap: true },
-      streak: [24, 1],
+      wear: 0.3,
+      rustAmt: 0.72,
+      ridges: { n: 11, amp: 0.25, trap: true },
+      streak: [30, 1],
       gradient: true,
       nStr: 3.4,
       offset: 0.71,
@@ -723,10 +726,10 @@ export function getTextures(): TextureSet {
       paint: [76, 86, 62],
       paint2: [106, 112, 84],
       under: [70, 64, 60],
-      wear: 0.52,
-      rustAmt: 0.6,
-      ridges: { n: 28, amp: 0.7, trap: true },
-      streak: [24, 1],
+      wear: 0.32,
+      rustAmt: 0.72,
+      ridges: { n: 11, amp: 0.25, trap: true },
+      streak: [30, 1],
       gradient: true,
       nStr: 3.4,
       offset: 0.55,
@@ -787,21 +790,32 @@ export function getTextures(): TextureSet {
       paint: [170, 138, 56],
       paint2: [190, 156, 78],
       under: [76, 68, 60],
-      wear: 0.5,
+      wear: 0.26,
       rustAmt: 0.6,
       streak: [8, 4],
       nStr: 3,
       offset: 0.19,
+    }),
+    panel: painted({
+      size: 512,
+      paint: [104, 112, 104],
+      paint2: [124, 130, 120],
+      under: [70, 66, 62],
+      wear: 0.12,
+      rustAmt: 0.45,
+      streak: [10, 2],
+      nStr: 2.5,
+      offset: 0.58,
+      gloss: 0.15,
     }),
     tank: painted({
       size: 512,
       paint: [184, 172, 148],
       paint2: [160, 150, 128],
       under: [76, 66, 58],
-      wear: 0.5,
-      rustAmt: 0.55,
+      wear: 0.3,
+      rustAmt: 0.6,
       streak: [3, 20],
-      rings: 2,
       nStr: 3,
       offset: 0.47,
     }),

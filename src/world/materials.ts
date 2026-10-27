@@ -29,6 +29,7 @@ export type MatKey =
   | 'barrelBlue'
   | 'barrelRed'
   | 'generator'
+  | 'panel'
   | 'tank'
   | 'sandbag'
   | 'chain'
@@ -89,16 +90,17 @@ export function createMaterials(): Mats {
     woodDark: def(pbrMat(T.wood, { metal: 0, color: 0x9c8a78 }), 1, 1, 'wood'),
     diamond: def(pbrMat(T.diamond), 0.5, 0.5, 'metal'),
     grate: def(pbrMat(T.grate, { side: true, alpha: true }), 0.5, 0.5, 'metal'),
-    contBlue: def(pbrMat(T.contBlue), 3.05, 2.6, 'metal'),
-    contRed: def(pbrMat(T.contRed), 3.05, 2.6, 'metal'),
-    contGreen: def(pbrMat(T.contGreen), 3.05, 2.6, 'metal'),
+    contBlue: def(pbrMat(T.contBlue, { side: true }), 3.05, 2.6, 'metal'),
+    contRed: def(pbrMat(T.contRed, { side: true }), 3.05, 2.6, 'metal'),
+    contGreen: def(pbrMat(T.contGreen, { side: true }), 3.05, 2.6, 'metal'),
     pipeYellow: def(pbrMat(T.pipeYellow), 1, 2, 'metal'),
     pipeGrey: def(pbrMat(T.pipeGrey), 1, 2, 'metal'),
     barrelBlue: def(pbrMat(T.barrelBlue), 1.8, 0.9, 'metal'),
     barrelRed: def(pbrMat(T.barrelRed), 1.8, 0.9, 'metal'),
     generator: def(pbrMat(T.generator), 1.5, 1.5, 'metal'),
+    panel: def(pbrMat(T.panel), 1.5, 1.5, 'metal'),
     tank: def(pbrMat(T.tank), 2, 2, 'metal'),
-    sandbag: def(pbrMat(T.sandbag, { metal: 0 }), 1, 1, 'sand'),
+    sandbag: def(pbrMat(T.sandbag, { metal: 0, color: 0xc4b59a }), 1, 1, 'sand'),
     chain: def(pbrMat(T.chain, { side: true, alpha: true }), 0.25, 0.25, 'metal'),
     rubber: def(flat(0x1e1c1a, 0.95), 1, 1, 'dirt'),
     black: def(flat(0x141414, 0.7, 0.3), 1, 1, 'metal'),
