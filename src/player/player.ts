@@ -113,6 +113,8 @@ export class Player implements Actor {
   private ladder: Ladder | null = null
   private ladderVy = 0
   private ladderCooldown = 0
+  private ladderTurn = 0
+  private ladderDown = false
   private ladderStepAcc = 0
   private dismountT = -1
   private dismountDur = 0.38
@@ -376,7 +378,15 @@ export class Player implements Actor {
     if (this.ladder) {
       const n = this.ladder.normal
       const face = yawFromDirection(-n.x, -n.z)
-      this.yaw = face + clamp(wrapAngle(this.yaw - face), -1.35, 1.35)
+      if (this.ladderTurn > 0) {
+        // Just mounted: swing the view round onto the rungs (and down, when mounting from the top).
+        this.ladderTurn = Math.max(0, this.ladderTurn - dt)
+        const k = 1 - Math.exp(-12 * dt)
+        this.yaw += wrapAngle(face - this.yaw) * k
+        if (this.ladderDown) this.pitch = damp(this.pitch, -0.6, 10, dt)
+      } else {
+        this.yaw = face + clamp(wrapAngle(this.yaw - face), -1.35, 1.35)
+      }
     }
   }
 
@@ -428,7 +438,12 @@ export class Player implements Actor {
 
   private handleJump(wishY: number) {
     const p = this.position
-    if (this.stance === 2) return
+    if (this.stance === 2) {
+      // MW2: jump while prone pops you up to a crouch.
+      if (this.grounded && this.diveT <= 0 && this.fits(p.x, p.y, p.z, 1)) this.setStance(1)
+      this.jumpBuffer = 0
+      return
+    }
     if (wishY > 0.1 && this.tryMantle()) {
       this.jumpBuffer = 0
       return
@@ -843,6 +858,10 @@ export class Player implements Actor {
       } else continue
       this.ladder = l
       this.ladderVy = fromTop ? -1.2 : 0
+      this.ladderDown = fromTop
+      // Turn onto the rungs if we came in at an angle (always when stepping on from the top).
+      const face = yawFromDirection(-n.x, -n.z)
+      this.ladderTurn = fromTop || Math.abs(wrapAngle(this.yaw - face)) > 1.35 ? 0.45 : 0
       this.ladderStepAcc = 0
       this.sprinting = false
       this.setStance(0)
@@ -866,7 +885,7 @@ export class Player implements Actor {
     p.z = damp(p.z, l.bottom.z + n.z * T.ladderOffset + tz * lat, 14, dt)
 
     // CoD: forward climbs up when looking up, down when looking down.
-    const look = clamp((this.pitch + 0.2) / 0.2, -1, 1)
+    const look = this.ladderTurn > 0 && this.ladderDown ? -1 : clamp((this.pitch + 0.2) / 0.2, -1, 1)
     const target = canAct ? wishY * look * T.climbSpeed : 0
     this.ladderVy = damp(this.ladderVy, target, 12, dt)
     p.y += this.ladderVy * dt
@@ -1011,9 +1030,9 @@ export class Player implements Actor {
     const side = d.x * cy + d.z * -sy // positive: pushed towards our right
     const front = Math.max(0, -fwd)
     const back = Math.max(0, fwd)
-    this.flinchPitch.impulse(mag * (0.28 + 0.35 * front - 0.22 * back))
-    this.flinchRoll.impulse(-side * 0.5 * mag)
-    this.flinchYaw.impulse(-side * 0.22 * mag)
+    this.flinchPitch.impulse(mag * (0.75 + 0.9 * front - 0.6 * back))
+    this.flinchRoll.impulse(-side * 1.3 * mag)
+    this.flinchYaw.impulse(-side * 0.6 * mag)
     this.hitFlash = Math.max(this.hitFlash, 0.22 + 0.3 * mag)
   }
 

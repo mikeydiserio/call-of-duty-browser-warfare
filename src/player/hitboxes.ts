@@ -42,15 +42,16 @@ function buildShapes(px: number, py: number, pz: number, yaw: number, stance: 0 
     set(1, px, py + eye - 0.3, pz, px, py + eye - 0.8, pz, 0.2)
     set(2, px - rx * 0.27 + fx * 0.06, py + eye - 0.38, pz - rz * 0.27 + fz * 0.06, px - rx * 0.27 + fx * 0.14, py + eye - 0.78, pz - rz * 0.27 + fz * 0.14, 0.07)
     set(3, px + rx * 0.27 + fx * 0.06, py + eye - 0.38, pz + rz * 0.27 + fz * 0.06, px + rx * 0.27 + fx * 0.14, py + eye - 0.78, pz + rz * 0.27 + fz * 0.14, 0.07)
-    set(4, px - rx * 0.1, py + eye - 0.85, pz - rz * 0.1, px - rx * 0.11, py + 0.08, pz - rz * 0.11, 0.1)
-    set(5, px + rx * 0.1, py + eye - 0.85, pz + rz * 0.1, px + rx * 0.11, py + 0.08, pz + rz * 0.11, 0.1)
+    // Legs overlap slightly at the centre line so a ray between the knees still connects.
+    set(4, px - rx * 0.09, py + eye - 0.85, pz - rz * 0.09, px - rx * 0.1, py + 0.08, pz - rz * 0.1, 0.11)
+    set(5, px + rx * 0.09, py + eye - 0.85, pz + rz * 0.09, px + rx * 0.1, py + 0.08, pz + rz * 0.1, 0.11)
   } else {
     // Crouched: shorter torso, folded legs.
     set(1, px, py + eye - 0.28, pz, px, py + eye - 0.62, pz, 0.2)
     set(2, px - rx * 0.27 + fx * 0.1, py + eye - 0.34, pz - rz * 0.27 + fz * 0.1, px - rx * 0.27 + fx * 0.18, py + eye - 0.6, pz - rz * 0.27 + fz * 0.18, 0.07)
     set(3, px + rx * 0.27 + fx * 0.1, py + eye - 0.34, pz + rz * 0.27 + fz * 0.1, px + rx * 0.27 + fx * 0.18, py + eye - 0.6, pz + rz * 0.27 + fz * 0.18, 0.07)
-    set(4, px - rx * 0.11, py + 0.46, pz - rz * 0.11, px - rx * 0.11 + fx * 0.12, py + 0.1, pz - rz * 0.11 + fz * 0.12, 0.11)
-    set(5, px + rx * 0.11, py + 0.46, pz + rz * 0.11, px + rx * 0.11 + fx * 0.12, py + 0.1, pz + rz * 0.11 + fz * 0.12, 0.11)
+    set(4, px - rx * 0.1, py + 0.46, pz - rz * 0.1, px - rx * 0.1 + fx * 0.12, py + 0.1, pz - rz * 0.1 + fz * 0.12, 0.12)
+    set(5, px + rx * 0.1, py + 0.46, pz + rz * 0.1, px + rx * 0.1 + fx * 0.12, py + 0.1, pz + rz * 0.1 + fz * 0.12, 0.12)
   }
 }
 
