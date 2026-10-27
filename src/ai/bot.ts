@@ -981,13 +981,13 @@ export class Bot implements Actor {
     const spread = spreadDeg * DEG
     _right.set(-_v.z, 0, _v.x).normalize()
     _up.crossVectors(_right, _v)
+    this.anim.muzzle(_muzzle)
     for (let i = 0; i < def.pellets; i++) {
       const a = Math.random() * Math.PI * 2
       const r = Math.sqrt(Math.random()) * Math.tan(spread)
       _dir.copy(_v).addScaledVector(_right, Math.cos(a) * r).addScaledVector(_up, Math.sin(a) * r).normalize()
-      this.game.combat.fireBullet(this, this.weaponId, _eye, _dir)
+      this.game.combat.fireBullet(this, this.weaponId, _eye, _dir, true, _muzzle)
     }
-    this.anim.muzzle(_muzzle)
     this.game.events.emit('weapon:fire', { shooter: this, weaponId: this.weaponId, origin: _muzzle, direction: _v, suppressed: false })
     this.anim.fireKick(def.class === 'sniper' || def.class === 'shotgun' ? 1.6 : def.class === 'pistol' ? 0.8 : 0.6)
     // Recoil the view; the aim controller pulls it back down.

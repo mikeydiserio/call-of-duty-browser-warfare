@@ -35,6 +35,7 @@ const _dir = new Vector3()
 const _ray = new Ray()
 const _seg = new Line3()
 const _start = new Vector3()
+const _hit: WorldHit = { point: new Vector3(), normal: new Vector3(), distance: 0, surface: 'concrete' }
 
 /**
  * Static level collision. Map builders register meshes / boxes with a surface
@@ -90,24 +91,33 @@ export class CollisionWorld {
     this.pending = []
     this.geometry = merged
     this.surfaceAttr = merged.getAttribute('surface') as BufferAttribute
-    this.bvh = new MeshBVH(merged, { maxLeafSize: 8 })
+    this.bvh = new MeshBVH(merged, { targetLeafSize: 8 })
     this.debugMesh = new Mesh(merged)
     this.debugMesh.visible = false
   }
 
-  /** Nearest hit along a ray, or null. dir must be normalised. */
+  /** Nearest hit along a ray, or null. dir must be normalised. Allocates the result; use raycastInto in hot paths. */
   raycast(origin: Vector3, dir: Vector3, maxDistance: number): WorldHit | null {
-    if (!this.bvh) return null
+    const out: WorldHit = { point: new Vector3(), normal: new Vector3(), distance: 0, surface: 'concrete' }
+    return this.raycastInto(origin, dir, maxDistance, out) ? out : null
+  }
+
+  /** Allocation-free raycast: writes the nearest hit into `out` and returns true, or returns false. */
+  raycastInto(origin: Vector3, dir: Vector3, maxDistance: number, out: WorldHit): boolean {
+    if (!this.bvh) return false
     _ray.origin.copy(origin)
     _ray.direction.copy(dir)
     const hit = this.bvh.raycastFirst(_ray, DoubleSide, 0, maxDistance)
-    if (!hit || hit.distance > maxDistance) return null
-    const normal = hit.face ? hit.face.normal.clone() : new Vector3(0, 1, 0)
+    if (!hit || hit.distance > maxDistance) return false
+    if (hit.face) out.normal.copy(hit.face.normal)
+    else out.normal.set(0, 1, 0)
     // Face normals are in geometry space == world space here. Make them face the ray.
-    if (normal.dot(dir) > 0) normal.negate()
+    if (out.normal.dot(dir) > 0) out.normal.negate()
     const vi = hit.face ? hit.face.a : 0
-    const surface = SURFACES[this.surfaceAttr ? this.surfaceAttr.getX(vi) : 0] ?? 'concrete'
-    return { point: hit.point.clone(), normal, distance: hit.distance, surface }
+    out.surface = SURFACES[this.surfaceAttr ? this.surfaceAttr.getX(vi) : 0] ?? 'concrete'
+    out.point.copy(hit.point)
+    out.distance = hit.distance
+    return true
   }
 
   /** True if the segment a→b is unobstructed. */
@@ -116,20 +126,18 @@ export class CollisionWorld {
     const len = _dir.length()
     if (len < 1e-4) return true
     _dir.divideScalar(len)
-    return this.raycast(a, _dir, len - 0.02) === null
+    return !this.raycastInto(a, _dir, len - 0.02, _hit)
   }
 
   /** Height of the first surface below (x, fromY, z), or -Infinity. */
   groundHeight(x: number, z: number, fromY = 50, maxDrop = 100): number {
     _start.set(x, fromY, z)
-    const hit = this.raycast(_start, _dir.set(0, -1, 0), maxDrop)
-    return hit ? hit.point.y : -Infinity
+    return this.raycastInto(_start, _dir.set(0, -1, 0), maxDrop, _hit) ? _hit.point.y : -Infinity
   }
 
   surfaceBelow(x: number, y: number, z: number): Surface {
     _start.set(x, y + 0.1, z)
-    const hit = this.raycast(_start, _dir.set(0, -1, 0), 0.6)
-    return hit ? hit.surface : 'sand'
+    return this.raycastInto(_start, _dir.set(0, -1, 0), 0.6, _hit) ? _hit.surface : 'sand'
   }
 
   /**

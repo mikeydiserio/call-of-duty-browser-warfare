@@ -35,9 +35,17 @@ export class Combat {
 
   /**
    * Fire one bullet (call once per pellet). `dir` must already include spread.
-   * Returns what was hit, for weapon feedback.
+   * `tracerFrom` (e.g. the world-space muzzle) is where the tracer starts; defaults to `origin`.
+   * Returns what was hit and where the bullet stopped, for weapon feedback.
    */
-  fireBullet(shooter: Actor, weaponId: WeaponId, origin: Vector3, dir: Vector3, tracer = true): { actor: Actor | null; world: WorldHit | null } {
+  fireBullet(
+    shooter: Actor,
+    weaponId: WeaponId,
+    origin: Vector3,
+    dir: Vector3,
+    tracer = true,
+    tracerFrom?: Vector3,
+  ): { actor: Actor | null; world: WorldHit | null; point: Vector3 } {
     const def = WEAPONS[weaponId]
     const world = this.game.collision
     let remaining = MAX_RANGE
@@ -71,7 +79,7 @@ export class Combat {
       : worldHit
         ? worldHit.point
         : _end.copy(start).addScaledVector(dir, remaining).clone()
-    if (tracer) this.game.events.emit('bullet:tracer', { from: origin, to: endPoint, shooter })
+    if (tracer) this.game.events.emit('bullet:tracer', { from: tracerFrom ?? origin, to: endPoint, shooter })
     this.emitWhizz(shooter, origin, endPoint)
 
     if (actorHit) {
@@ -91,9 +99,9 @@ export class Combat {
       })
       shooter.stats.shotsHit++
       this.game.events.emit('bullet:impact', { point: actorHit.hit.point, normal: dir.clone().negate(), surface: 'flesh', shooter })
-      return { actor: actorHit.actor, world: null }
+      return { actor: actorHit.actor, world: null, point: endPoint }
     }
-    return { actor: null, world: worldHit }
+    return { actor: null, world: worldHit, point: endPoint }
   }
 
   /** Knife: short cone in front of attacker. Returns true if it connected. */

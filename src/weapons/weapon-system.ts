@@ -351,13 +351,7 @@ export class WeaponSystem {
         .normalize()
       const res = this.game.combat.fireBullet(owner, def.id, _eye, _dir, false)
       if (i === 0 && (this.shotCount % TRACER_EVERY === 1 || pellets > 1 || !def.auto)) {
-        if (res.world) _end.copy(res.world.point)
-        else if (res.actor) {
-          res.actor.getEyePosition(_end)
-          _end.y -= 0.35
-          const d = _end.sub(_eye).dot(_dir)
-          _end.copy(_eye).addScaledVector(_dir, d)
-        } else _end.copy(_eye).addScaledVector(_dir, 250)
+        _end.copy(res.point)
         this.game.events.emit('bullet:tracer', { from: _muzzle, to: _end, shooter: owner })
       }
     }

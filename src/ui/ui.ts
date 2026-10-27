@@ -174,6 +174,11 @@ export class UI implements UiCtx {
           break
         case 'loading':
         case 'intro':
+          // A match can start without play() (e.g. game.startMatch from devtools); drop any open menus.
+          if (this.stack.length) {
+            this.stack = []
+            this.showTop()
+          }
           this.hud.setVisible(true)
           if (!this.loading.visible && phase === 'loading') this.loading.show()
           this.intro.show()
