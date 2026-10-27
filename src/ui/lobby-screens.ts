@@ -1,6 +1,6 @@
 import { defaultMatch } from '../core/game'
 import type { GameModeId, MatchSettings, Team } from '../core/types'
-import type { LobbyInfo, LobbyPlayer } from '../net/lobby'
+import type { LobbyInfo, LobbyPlayer, LobbyService } from '../net/lobby'
 import { levelForXp, loadXp } from './data'
 import { clamp, el, fmtTime, hash01, setClass } from './dom'
 import { emblemSvg, rankSvg } from './icons'
@@ -39,6 +39,13 @@ function pingBars(ms: number, host: boolean): number {
 
 function pingHtml(n: number): string {
   return `<span class="pbars b${n}"><i></i><i></i><i></i><i></i></span>`
+}
+
+/** Optional extras the online lobby implements (kick, last disconnect reason, match running). */
+type LobbyExtras = LobbyService & { kick?(id: string): void; message?: string; inProgress?: boolean }
+
+function extras(l: LobbyService): LobbyExtras {
+  return l as LobbyExtras
 }
 
 function difficultyName(v: number): string {
@@ -476,9 +483,14 @@ export class LobbyScreen implements Screen {
   }
 
   private onLobbyChange() {
-    if (!this.ctx.game.lobby.lobby) {
-      // Lobby went away underneath us (host left / kicked). net:status carries the message.
-      if (this.el.classList.contains('on')) this.ctx.pop()
+    const l = this.ctx.game.lobby
+    if (!l.lobby) {
+      // Lobby went away underneath us (host left / kicked).
+      if (this.el.classList.contains('on')) {
+        this.ctx.pop()
+        const msg = extras(l).message
+        if (msg) this.ctx.popup('LOBBY CLOSED', msg)
+      }
       return
     }
     this.render()
@@ -494,7 +506,7 @@ export class LobbyScreen implements Screen {
     const lob = g.lobby.lobby
     if (!lob) return
     const s = lob.settings
-    const sig = JSON.stringify([lob.code, s, lob.players, g.lobby.role, this.focus, this.rowIdx, g.lobby.localName])
+    const sig = JSON.stringify([lob.code, s, lob.players, g.lobby.role, this.focus, this.rowIdx, g.lobby.localName, extras(g.lobby).inProgress])
     if (sig === this.sig) return
     this.sig = sig
 
@@ -522,7 +534,13 @@ export class LobbyScreen implements Screen {
       r.valEl!.textContent = r.value()
       setClass(r.el!, 'sel', this.isHost && this.focus === 'settings' && i === this.rowIdx)
     })
-    this.setNote.textContent = this.isHost ? `${this.humans + s.botCount} / ${MAX_TOTAL} PLAYERS INCLUDING BOTS` : 'THE HOST CONTROLS THE GAME SETUP'
+    const running = !!extras(g.lobby).inProgress
+    this.setNote.textContent = running
+      ? 'MATCH IN PROGRESS — YOU WILL DROP IN ON THE NEXT SPAWN'
+      : this.isHost
+        ? `${this.humans + s.botCount} / ${MAX_TOTAL} PLAYERS INCLUDING BOTS`
+        : 'THE HOST CONTROLS THE GAME SETUP'
+    setClass(this.setNote, 'live', running)
     this.drawMap()
 
     // players
@@ -544,6 +562,15 @@ export class LobbyScreen implements Screen {
       el('span', 'lp-tag', r, p.isHost ? 'HOST' : p.team === null && s.mode !== 'ffa' ? 'AUTO' : '')
       el('span', `lp-ready${p.ready || p.isHost ? ' on' : ''}`, r, p.ready || p.isHost ? '✔' : '')
       el('span', 'lp-ping', r).innerHTML = pingHtml(pingBars(p.ping, p.isHost))
+      const kick = extras(this.ctx.game.lobby).kick
+      if (this.isHost && !p.isHost && kick) {
+        const k = el('button', 'lp-kick', r, 'KICK')
+        k.type = 'button'
+        k.addEventListener('click', () => {
+          this.ctx.sfx('back')
+          kick.call(this.ctx.game.lobby, p.id)
+        })
+      }
     }
     const bot = (n: number, parent: HTMLElement) => {
       for (let i = 0; i < n; i++) {

@@ -756,9 +756,9 @@ export class Hud {
       }
     }
     if (!dead) return
-    if (g.mode.id === 'sd') {
+    if (!g.mode.canRespawn) {
       // One life per round: spectate a living teammate until the next round.
-      const mate = g.actors.find((a) => a.alive && !a.isPlayer && !g.mode.isEnemy(p, a))
+      const mate = g.mode.spectateTarget(p, 0)
       this.dResp.set(mate ? `SPECTATING ${mate.name.toUpperCase()}` : 'NO TEAMMATES ALIVE')
       this.dRespSub.set('WAITING FOR NEXT ROUND')
       setClass(this.death, 'ready', false)
