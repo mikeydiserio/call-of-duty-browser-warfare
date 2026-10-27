@@ -51,6 +51,8 @@ export class Input {
   }
   sensitivity = 1
   invertY = false
+  /** Go fullscreen + keyboard-lock on lock() so Ctrl+W reaches the game instead of closing the tab. */
+  fullscreen = true
   /** When false (menus) gameplay input is zeroed but pause/escape still reported. */
   enabled = false
   /** Dev aid (?debug): accept mouse input without pointer lock (automation can't always lock). */
@@ -97,6 +99,29 @@ export class Input {
     } catch {
       this.fallbackLock()
     }
+    if (this.fullscreen) this.enterFullscreen()
+  }
+
+  /**
+   * Browsers reserve Ctrl+W (close tab) and ignore preventDefault for it. The Keyboard Lock
+   * API (Chromium only) hands it to the page, but only while in page-initiated fullscreen.
+   * The lock is released automatically when fullscreen exits.
+   */
+  private enterFullscreen() {
+    const keyboard = (navigator as Navigator & { keyboard?: { lock(codes?: string[]): Promise<void> } }).keyboard
+    const lockKeys = () => keyboard?.lock(['KeyW']).catch(() => {})
+    if (document.fullscreenElement) {
+      lockKeys()
+      return
+    }
+    document.documentElement
+      .requestFullscreen?.({ navigationUI: 'hide' })
+      .then(lockKeys)
+      .catch(() => {}) // no user gesture / not allowed; the beforeunload guard still applies
+  }
+
+  exitFullscreen() {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
   }
 
   /** Retry without options; without a user gesture this rejects, which is fine (we lock on the next click). */
@@ -143,7 +168,7 @@ export class Input {
   }
 
   private keyDown = (e: KeyboardEvent) => {
-    if (e.code === 'Tab' || (this.locked && (e.code === 'Space' || e.ctrlKey))) e.preventDefault()
+    if (e.code === 'Tab' || (e.ctrlKey && e.code === 'KeyW') || (this.locked && (e.code === 'Space' || e.ctrlKey))) e.preventDefault()
     if (e.repeat) return
     this.keys.add(e.code)
     const flag = (PRESS_KEYS as Record<string, PressFlag>)[e.code]

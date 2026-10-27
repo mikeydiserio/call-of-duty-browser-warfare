@@ -43,6 +43,8 @@ export interface LobbyService {
   readonly onlineAvailable: boolean
   readonly lobby: LobbyState | null
   localName: string
+  /** Set and persist this player's name. */
+  setLocalName(name: string): void
   /** Server browser. */
   listLobbies(): Promise<LobbyInfo[]>
   /** Create a lobby; resolves with its join code. `online=false` makes a private solo lobby (bots only). */
@@ -64,10 +66,20 @@ export class OfflineLobby implements LobbyService {
   readonly role: NetRole = 'offline'
   readonly onlineAvailable = false
   lobby: LobbyState | null = null
-  localName = 'Player'
+  localName = loadPlayerName()
   private listeners = new Set<() => void>()
 
   constructor(private game: Game) {}
+
+  setLocalName(name: string) {
+    const clean = normalizePlayerName(name)
+    if (!clean) return
+    this.localName = clean
+    savePlayerName(clean)
+    const me = this.lobby?.players[0]
+    if (me) me.name = clean
+    this.changed()
+  }
 
   async listLobbies(): Promise<LobbyInfo[]> {
     return []
@@ -124,5 +136,28 @@ export class OfflineLobby implements LobbyService {
 
   private changed() {
     for (const fn of this.listeners) fn()
+  }
+}
+
+const NAME_KEY = 'mw-rust-name'
+
+export function normalizePlayerName(name: string): string {
+  return name.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 20)
+}
+
+export function loadPlayerName(): string {
+  try {
+    const saved = normalizePlayerName(localStorage.getItem(NAME_KEY) ?? '')
+    return saved || `Soldier${Math.floor(Math.random() * 900 + 100)}`
+  } catch {
+    return 'Soldier'
+  }
+}
+
+export function savePlayerName(name: string) {
+  try {
+    localStorage.setItem(NAME_KEY, name)
+  } catch {
+    /* private mode */
   }
 }

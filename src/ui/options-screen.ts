@@ -62,6 +62,12 @@ export class OptionsScreen implements Screen {
         fmt: (v) => (v > 0 ? 'ON' : 'OFF'),
       },
       {
+        label: 'FULLSCREEN (BLOCKS CTRL+W)', kind: 'toggle',
+        get: () => (g.settings.fullscreen ? 1 : 0),
+        set: (v) => { g.settings.fullscreen = v > 0; apply() },
+        fmt: (v) => (v > 0 ? 'ON' : 'OFF'),
+      },
+      {
         label: 'MASTER VOLUME', kind: 'slider', min: 0, max: 1, step: 0.05,
         get: () => g.settings.masterVolume,
         set: (v) => { g.settings.masterVolume = v; apply() },

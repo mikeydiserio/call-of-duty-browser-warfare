@@ -60,7 +60,9 @@ const capHeight = (stance: 0 | 1 | 2) => (stance === 2 ? 0.54 : CONFIG.capsuleHe
 
 export class Player implements Actor {
   readonly id = 0
-  readonly name = 'Player'
+  get name() {
+    return this.game.lobby?.localName ?? 'Player'
+  }
   readonly team: Team = 'tf141'
   readonly isPlayer = true
   alive = false

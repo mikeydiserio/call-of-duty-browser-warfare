@@ -3,7 +3,7 @@ import type { Loadout, MatchSettings, NetRole, Team } from '../core/types'
 import { ClientSession } from './client'
 import { HostSession, type HostPeer } from './host'
 import type { LobbyInfo, LobbyPlayer, LobbyService, LobbyState } from './lobby'
-import { OfflineLobby } from './lobby'
+import { loadPlayerName, normalizePlayerName, OfflineLobby, savePlayerName } from './lobby'
 import { PeerLink, type PeerSignal } from './peer'
 import type { ReliableMsg } from './protocol'
 import type { SignalChannel, SignalingTransport, SignalPayload } from './signaling'
@@ -72,12 +72,26 @@ export class OnlineLobby implements LobbyService {
         this.changed()
       }
     })
-    this.localName = loadName()
+    this.localName = loadPlayerName()
+    this.solo.localName = this.localName
     window.addEventListener('beforeunload', () => this.leave())
     ;(window as unknown as { __net: OnlineLobby }).__net = this
   }
 
   // ─── Lobby browser ────────────────────────────────────────────────────────
+
+  setLocalName(name: string) {
+    const clean = normalizePlayerName(name)
+    if (!clean) return
+    this.localName = clean
+    savePlayerName(clean)
+    if (this.role === 'offline') this.solo.setLocalName(clean)
+    else if (this.role === 'host') this.publish()
+    else {
+      this.sendHello()
+      this.changed()
+    }
+  }
 
   private listChannel(): Promise<SignalChannel> {
     this.listReady ??= this.transport.open(LOBBY_LIST, this.pid).then((ch) => {
@@ -117,7 +131,7 @@ export class OnlineLobby implements LobbyService {
 
   async host(settings: MatchSettings, online: boolean): Promise<string> {
     this.leave()
-    saveName(this.localName)
+    savePlayerName(this.localName)
     if (!online) {
       this.solo.localName = this.localName
       return this.solo.host(settings)
@@ -291,7 +305,7 @@ export class OnlineLobby implements LobbyService {
 
   async join(code: string): Promise<void> {
     this.leave()
-    saveName(this.localName)
+    savePlayerName(this.localName)
     code = code.trim().toUpperCase()
     if (!/^[A-Z0-9]{5}$/.test(code)) throw new Error('Lobby codes are 5 characters')
     const ch = await this.transport.open(`mw-lobby-${code}`, this.pid)
@@ -482,18 +496,3 @@ function sanitizeLoadout(l: Loadout | undefined): Loadout {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-const NAME_KEY = 'mw-rust-name'
-function loadName() {
-  try {
-    return localStorage.getItem(NAME_KEY) || `Soldier${Math.floor(Math.random() * 900 + 100)}`
-  } catch {
-    return 'Soldier'
-  }
-}
-function saveName(n: string) {
-  try {
-    localStorage.setItem(NAME_KEY, n)
-  } catch {
-    /* private mode */
-  }
-}

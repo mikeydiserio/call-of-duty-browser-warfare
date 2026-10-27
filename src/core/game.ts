@@ -25,6 +25,8 @@ export interface Settings {
   masterVolume: number
   musicVolume: number
   quality: 'low' | 'medium' | 'high'
+  /** Fullscreen + keyboard lock during play, so Ctrl+W (crouch-walk) can't close the tab. */
+  fullscreen: boolean
 }
 
 const SETTINGS_KEY = 'mw-rust-settings'
@@ -80,6 +82,7 @@ export class Game {
       masterVolume: 0.8,
       musicVolume: 0.5,
       quality: 'high',
+      fullscreen: true,
     })
     this.loadout = loadJSON<Loadout>(LOADOUT_KEY, { primary: 'acr', secondary: 'usp45', perks: ['sleightOfHand', 'stoppingPower', 'commando'] })
 
@@ -106,6 +109,13 @@ export class Game {
       if (phase === 'ended') this.endTimer = 0
     })
     window.addEventListener('resize', () => this.render.resize())
+    // Fallback for browsers without Keyboard Lock (and windowed play): confirm before a
+    // stray Ctrl+W closes the tab mid-match.
+    window.addEventListener('beforeunload', (e) => {
+      if (this.mode.phase === 'menu') return
+      e.preventDefault()
+      e.returnValue = ''
+    })
     this.mode.setPhase('menu')
   }
 
@@ -219,6 +229,8 @@ export class Game {
   applySettings() {
     this.input.sensitivity = this.settings.sensitivity
     this.input.invertY = this.settings.invertY
+    this.input.fullscreen = this.settings.fullscreen
+    if (!this.settings.fullscreen) this.input.exitFullscreen()
     this.audio.setVolume(this.settings.masterVolume, this.settings.musicVolume)
     this.render.setQuality(this.settings.quality)
     saveJSON(SETTINGS_KEY, this.settings)

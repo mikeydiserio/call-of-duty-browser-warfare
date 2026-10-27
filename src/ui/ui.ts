@@ -13,6 +13,7 @@ import { PauseScreen } from './pause-screen'
 import { Scoreboard } from './scoreboard'
 import type { Screen, ScreenId, UiCtx } from './screen'
 
+
 const DESIGN_H = 1080
 /** Pre-match countdown length; long enough to sit behind the loading screen and still show 3-2-1. */
 const INTRO_SECONDS = 6.5
@@ -268,7 +269,8 @@ export class UI implements UiCtx {
     const s = this.current
     if (!s) return
     if (NAV_KEYS.has(e.code)) e.preventDefault()
-    if (e.code === 'Escape' && this.stack.length === 1 && this.stack[0] === 'main') return
+    const mainHasFocus = this.screens.get('main')?.el.contains(document.activeElement)
+    if (e.code === 'Escape' && !typing && !mainHasFocus && this.stack.length === 1 && this.stack[0] === 'main') return
     s.key(e)
   }
 

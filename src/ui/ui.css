@@ -436,7 +436,29 @@
   flex: 1;
   min-width: 0;
 }
+.pcard-name-row,
+.pcard-name-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 38px;
+}
+.pcard-name-edit-row {
+  display: none;
+}
+.pcard.editing .pcard-name-row {
+  display: none;
+}
+.pcard.editing .pcard-name-edit-row {
+  display: flex;
+}
 .pcard-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--f-head);
   font-weight: 700;
   font-size: 34px;
@@ -444,6 +466,57 @@
   letter-spacing: 0.06em;
   color: #fff;
   text-shadow: var(--shadow);
+}
+.pcard-name-edit,
+.pcard-name-action {
+  flex: none;
+  padding: 5px 8px 4px;
+  font-family: var(--f-head);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  color: var(--olive-hi);
+  background: rgba(0, 0, 0, 0.38);
+  border: 1px solid var(--line-hi);
+  cursor: pointer;
+}
+.pcard-name-edit:hover,
+.pcard-name-action:hover,
+.pcard-name-edit:focus-visible,
+.pcard-name-action:focus-visible {
+  color: #11130c;
+  background: var(--olive-hi);
+  outline: none;
+}
+.pcard-name-input {
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  font-family: var(--f-head);
+  font-weight: 700;
+  font-size: 23px;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid var(--olive-hi);
+  outline: none;
+}
+.pcard-name-input:focus {
+  box-shadow: 0 0 10px rgba(211, 228, 122, 0.25);
+}
+.pcard-name-input::placeholder {
+  color: var(--ink-dim);
+}
+.pcard-name-action {
+  min-width: 50px;
+  padding-inline: 7px;
+  font-size: 12px;
+}
+.pcard-name-action.subtle {
+  color: var(--ink-dim);
+  border-color: var(--line);
 }
 .pcard-level {
   margin-top: 4px;

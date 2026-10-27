@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
+    "@vercel/analytics": "^2.0.1",
     "postprocessing": "^6.39.5",
     "three": "^0.186.1",
     "three-mesh-bvh": "^0.9.16"

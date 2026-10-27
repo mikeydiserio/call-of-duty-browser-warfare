@@ -6,6 +6,7 @@ import {
   CylinderGeometry,
   Euler,
   Group,
+  type Material,
   Matrix3,
   Matrix4,
   Mesh,
@@ -21,6 +22,7 @@ import {
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import type { Team } from '../core/types'
 import { COLS, createSoldierAtlas, MARGIN, TILE } from './camo'
+import { buildOpforBody } from './opfor-kit'
 
 export const BONE_ORDER = [
   'pelvis', 'spine', 'chest', 'neck', 'head',
@@ -509,9 +511,13 @@ const SKIN_TONES = [
 const tint = (c: number, v: number) => C(c).multiplyScalar(v)
 
 export function buildSoldier(team: Team, rnd: () => number): SoldierRig {
+  const pick = <A>(arr: readonly A[]): A => arr[Math.floor(rnd() * arr.length)]!
+  if (team === 'opfor') {
+    const imported = buildOpforBody(rnd)
+    if (imported) return assembleRig(imported.geometry, imported.material, pick(SKIN_TONES).clone(), imported.headgear)
+  }
   const T = getTemplates()
   const b = new Builder()
-  const pick = <A>(arr: readonly A[]): A => arr[Math.floor(rnd() * arr.length)]!
   const chance = (p: number) => rnd() < p
   const vary = (c: Color, a = 0.08) => c.clone().multiplyScalar(1 - a + rnd() * a * 2)
 
@@ -890,8 +896,11 @@ export function buildSoldier(team: Team, rnd: () => number): SoldierRig {
     b.add(T.box, mat([s * 0.208, 0.78, 0.0], [0.05, 0.16, 0.12]), pantsTile, vary(pantsColor, 0.05), rigid(n.thigh), 1.6)
   }
 
-  // ── Build skeleton & mesh
-  const geo = b.build()
+  return assembleRig(b.build(), getMaterial(), skin, headgear)
+}
+
+/** Bind a body geometry (skinned to BONE_ORDER at REST) to a fresh skeleton with weapon mount + knife. */
+function assembleRig(geo: BufferGeometry, material: Material, skin: Color, headgear: string): SoldierRig {
   const bones = {} as Record<BoneName, Bone>
   const boneList: Bone[] = []
   for (const name of BONE_ORDER) {
@@ -911,7 +920,7 @@ export function buildSoldier(team: Team, rnd: () => number): SoldierRig {
   }
 
   const root = new Group()
-  const mesh = new SkinnedMesh(geo, getMaterial())
+  const mesh = new SkinnedMesh(geo, material)
   mesh.castShadow = true
   mesh.receiveShadow = true
   mesh.frustumCulled = false

@@ -1,4 +1,9 @@
+import { inject } from '@vercel/analytics'
+import { loadOpforKit } from './ai/opfor-kit'
 import { Game } from './core/game'
+
+inject()
+loadOpforKit()
 
 const container = document.getElementById('game')
 const uiRoot = document.getElementById('ui')

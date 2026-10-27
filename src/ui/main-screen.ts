@@ -4,6 +4,7 @@ import { el } from './dom'
 import { emblemSvg, rankSvg, WORDMARK } from './icons'
 import { keyHints, MenuList, type Screen, type UiCtx } from './screen'
 import { getMapOption } from '../world/maps'
+import { normalizePlayerName } from '../net/lobby'
 
 export class MainScreen implements Screen {
   readonly id = 'main' as const
@@ -15,6 +16,9 @@ export class MainScreen implements Screen {
   private cardXp: HTMLElement
   private cardXpText: HTMLElement
   private cardName: HTMLElement
+  private playerCard: HTMLElement
+  private nameInput: HTMLInputElement
+  private editNameButton: HTMLButtonElement
   private mapName: HTMLElement
   private mapLoc: HTMLElement
   private mapDesc: HTMLElement
@@ -52,10 +56,29 @@ export class MainScreen implements Screen {
     left.appendChild(this.list.el)
 
     // Player card (top right)
-    const card = el('div', 'pcard', root)
+    const card = (this.playerCard = el('div', 'pcard', root))
     this.cardRank = el('div', 'pcard-rank', card)
     const info = el('div', 'pcard-info', card)
-    this.cardName = el('div', 'pcard-name', info)
+    const nameRow = el('div', 'pcard-name-row', info)
+    this.cardName = el('div', 'pcard-name', nameRow)
+    const editName = (this.editNameButton = el('button', 'pcard-name-edit', nameRow, 'EDIT'))
+    editName.type = 'button'
+    editName.setAttribute('aria-label', 'Edit player name')
+    editName.addEventListener('click', () => this.startNameEdit())
+    const editRow = el('div', 'pcard-name-edit-row', info)
+    this.nameInput = el('input', 'pcard-name-input', editRow)
+    this.nameInput.type = 'text'
+    this.nameInput.maxLength = 20
+    this.nameInput.placeholder = 'PLAYER NAME'
+    this.nameInput.setAttribute('autocomplete', 'nickname')
+    this.nameInput.spellcheck = false
+    this.nameInput.setAttribute('aria-label', 'Player name, up to 20 characters')
+    const saveName = el('button', 'pcard-name-action', editRow, 'SAVE')
+    saveName.type = 'button'
+    saveName.addEventListener('click', () => this.commitNameEdit())
+    const cancelName = el('button', 'pcard-name-action subtle', editRow, 'CANCEL')
+    cancelName.type = 'button'
+    cancelName.addEventListener('click', () => this.cancelNameEdit())
     this.cardLevel = el('div', 'pcard-level', info)
     const bar = el('div', 'pcard-xpbar', info)
     this.cardXp = el('i', '', bar)
@@ -91,11 +114,12 @@ export class MainScreen implements Screen {
 
   enter() {
     const g = this.ctx.game
+    this.cancelNameEdit(false)
     const mapInfo = getMapOption(g.map.id)
     this.mapName.textContent = mapInfo.name.toUpperCase()
     this.mapLoc.textContent = mapInfo.location.toUpperCase()
     this.mapDesc.textContent = mapInfo.description
-    this.cardName.textContent = g.player.name.toUpperCase()
+    this.cardName.textContent = g.lobby.localName.toUpperCase()
     const xp = loadXp()
     const lv = levelForXp(xp)
     this.cardRank.innerHTML = rankSvg(lv)
@@ -110,7 +134,9 @@ export class MainScreen implements Screen {
     this.list.setIndex(this.list.idx, false)
   }
 
-  leave() {}
+  leave() {
+    if (this.playerCard.classList.contains('editing')) this.commitNameEdit(false)
+  }
 
   private busy = false
 
@@ -172,6 +198,49 @@ export class MainScreen implements Screen {
   }
 
   key(e: KeyboardEvent) {
+    const focused = document.activeElement
+    if (focused instanceof HTMLButtonElement && this.playerCard.contains(focused)) {
+      if (e.code === 'Enter' || e.code === 'Space') {
+        e.preventDefault()
+        focused.click()
+      } else if (e.code === 'Escape' && this.playerCard.classList.contains('editing')) {
+        e.preventDefault()
+        this.cancelNameEdit()
+      }
+      return
+    }
+    if (document.activeElement === this.nameInput) {
+      if (e.code === 'Enter') {
+        e.preventDefault()
+        this.commitNameEdit()
+      } else if (e.code === 'Escape') {
+        e.preventDefault()
+        this.cancelNameEdit()
+      }
+      return
+    }
     this.list.key(e)
+  }
+
+  private startNameEdit() {
+    this.nameInput.value = this.ctx.game.lobby.localName
+    this.playerCard.classList.add('editing')
+    this.nameInput.focus()
+    this.nameInput.select()
+  }
+
+  private commitNameEdit(restoreFocus = true) {
+    const name = normalizePlayerName(this.nameInput.value)
+    if (name) this.ctx.game.lobby.setLocalName(name)
+    this.cancelNameEdit(restoreFocus)
+    this.cardName.textContent = this.ctx.game.lobby.localName.toUpperCase()
+  }
+
+  private cancelNameEdit(restoreFocus = true) {
+    const hadFocus = this.playerCard.contains(document.activeElement)
+    this.playerCard.classList.remove('editing')
+    this.nameInput.value = this.ctx.game.lobby.localName
+    this.nameInput.blur()
+    if (restoreFocus && hadFocus) this.editNameButton.focus()
   }
 }
