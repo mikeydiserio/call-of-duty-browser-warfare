@@ -28,3 +28,49 @@
 - Audio (not UI): `ConvolverNode` throws when the impulse response's sample rate (32000) doesn't match the context rate (44100).
 - Respawn: `mode.respawnIn` returns 0 in the stub, so the death screen goes straight to "RESPAWNING" and the "Press FIRE" prompt never appears.
 - `HudWeaponState` needs real `ammo` and `reloading` values from `weapon-system.ts` for the low-ammo and reload prompts to fire.
+
+---
+
+# Phase 2: lobbies and mode HUDs (on top of main c2dcc5b)
+
+## Built
+- **Main menu:**
+  - PLAY ONLINE is greyed out, with a tooltip, whenever `lobby.onlineAvailable` is false.
+  - PRIVATE MATCH hosts an offline lobby.
+  - QUICK PLAY starts the default TDM.
+- **Server browser (`lobby-screens.ts`):** `listLobbies()` table with code, host, mode, map and players (full and in-progress rows are marked), REFRESH, JOIN BY CODE (text input), and HOST GAME. It auto-refreshes every 12 seconds.
+- **Lobby:**
+  - The code is shown big.
+  - Player list: split by team in team modes, with "auto" humans placed on the smaller side, plus bot fill rows. Each row has a rank icon, HOST/AUTO tag, ready tick and ping bars.
+  - Host-editable settings: game type, bots (0–11, capped at 12 total), difficulty (Recruit to Veteran), kill/score limit or rounds to win, and time or round time. Changing the mode applies `defaultMatch` and keeps the difficulty.
+  - Clients see the settings read-only.
+  - Actions: START MATCH (host only; enabled when everyone is ready; calls `lobby.startMatch()` inside the click), READY, SWITCH TEAM, CREATE A CLASS and LEAVE.
+  - Esc jumps the selection to LEAVE instead of leaving outright.
+  - After a match it returns to the lobby, and results offer RETURN TO LOBBY.
+- **Popups:** MW2-style modal for `net:status` messages, with a queue.
+- **FFA:**
+  - The score widget shows you vs the leader (or the runner-up when you lead), with placing ("4TH PLACE").
+  - Killfeed and minimap use `mode.isEnemy`, so there are no friendlies.
+  - The scoreboard is a single ranked list.
+  - The end screen shows VICTORY/DEFEAT, your placing, and the top-3 podium.
+- **Domination:**
+  - A/B/C rings top-centre in owner colours, with a capture progress arc and a blinking contested state.
+  - World markers (CAPTURE/DEFEND plus distance, clamped to the screen edge). The flag you stand on is hidden there and replaced by the CAPTURING/LOSING/CONTESTED bar.
+  - Minimap letters, "A CAPTURED!" / "WE LOST A" splashes, and CAPTURES/DEFENDS scoreboard columns.
+- **S&D:**
+  - Round and role header, alive count per team, and a planted-bomb fuse timer that gets urgent under 10 seconds.
+  - A BOMB indicator when you carry it, and bomb icons on the minimap (friendly carrier, dropped, planted).
+  - "F — HOLD TO PLANT/DEFUSE" prompt, plus a progress bar driven by `plantProgress`/`defuseProgress`.
+  - Site and bomb world markers, splashes for round start, win/loss (with the reason), plant and defuse, and spectating text when you're dead.
+  - PLANTS/DEFUSES columns and skulls for dead players.
+
+## Verified
+`bunx tsc --noEmit` is clean. Playwright with headless Chromium at 1080p captured 26 screenshots in `docs/agent-reports/ui/modes/`. Lobbies were driven through `OfflineLobby`, plus a fake online `LobbyService` for the client and browser views. Objective and bomb state were set directly, because the map has no flags or sites yet and the MODES agent's rules aren't merged.
+
+## Needs from other agents
+- **MODES:**
+  - Announce the right mode in `begin()`; it's hardcoded to "TEAM DEATHMATCH".
+  - Expose `winnerActor` (FFA).
+  - Add `captures`/`defends`/`plants`/`defuses` to `ActorStats`; the UI reads them optionally.
+- **MAP:** `domFlags`, `bombSites` and `bombSpawn`; the markers read `map.bombSites` and `mode.objectives`.
+- **AI:** `createTeams` ignores `match.botCount`, so the lobby's bot count isn't applied yet.

@@ -6,7 +6,9 @@ import { damp, el, setClass } from './dom'
 import { Hud } from './hud'
 import { MainScreen } from './main-screen'
 import { ControlsScreen, OptionsScreen } from './options-screen'
-import { IntroOverlay, LoadingScreen, ResultsOverlay, TitleCard } from './overlays'
+import { defaultMatch } from '../core/game'
+import { BrowserScreen, LobbyScreen } from './lobby-screens'
+import { IntroOverlay, LoadingScreen, Popup, ResultsOverlay, TitleCard } from './overlays'
 import { PauseScreen } from './pause-screen'
 import { Scoreboard } from './scoreboard'
 import type { Screen, ScreenId, UiCtx } from './screen'
@@ -31,6 +33,7 @@ export class UI implements UiCtx {
   private loading: LoadingScreen
   private intro: IntroOverlay
   private results: ResultsOverlay
+  private popupBox: Popup
   private tabBoard: Scoreboard
   private tabEl: HTMLElement
   private scale = 1
@@ -58,6 +61,8 @@ export class UI implements UiCtx {
       new OptionsScreen(this),
       new ControlsScreen(this),
       new PauseScreen(this),
+      new BrowserScreen(this),
+      new LobbyScreen(this),
     ] as Screen[]) {
       this.screens.set(s.id, s)
       this.stage.appendChild(s.el)
@@ -70,6 +75,8 @@ export class UI implements UiCtx {
     this.loading = new LoadingScreen(game)
     this.stage.appendChild(this.loading.el)
     el('div', 'fx-scan', this.stage)
+    this.popupBox = new Popup(this)
+    this.stage.appendChild(this.popupBox.el)
     this.title = new TitleCard()
     this.stage.appendChild(this.title.el)
 
@@ -102,7 +109,7 @@ export class UI implements UiCtx {
     return this.game.mode.phase !== 'menu'
   }
 
-  play() {
+  play(start?: () => void) {
     const g = this.game
     this.results.hide()
     this.stack = []
@@ -112,12 +119,17 @@ export class UI implements UiCtx {
     this.hud.setHoldAnnouncements(true)
     g.render.effects.menu = 0
     try {
-      g.startMatch(g.loadout)
+      if (start) start()
+      else g.startMatch(g.loadout, defaultMatch('tdm'))
     } catch (err) {
       this.loading.hideNow()
       throw err
     }
     g.mode.introLeft = Math.max(g.mode.introLeft, INTRO_SECONDS)
+  }
+
+  popup(title: string, message: string) {
+    this.popupBox.show(title, message)
   }
 
   resume() {
@@ -132,6 +144,11 @@ export class UI implements UiCtx {
   quit() {
     this.results.hide()
     this.game.quitToMenu()
+  }
+
+  /** Leave the match but stay in the lobby (lobby matches only). */
+  private menuStack(): ScreenId[] {
+    return this.game.lobby.lobby ? ['main', 'lobby'] : ['main']
   }
 
   // ─────────────────────────────── internals ─────────────────────────────
@@ -168,7 +185,7 @@ export class UI implements UiCtx {
           this.hud.setVisible(false)
           g.render.effects.menu = Math.max(g.render.effects.menu, 0.6)
           if (this.titleDone) {
-            this.stack = ['main']
+            this.stack = this.menuStack()
             this.showTop()
           }
           break
@@ -191,6 +208,10 @@ export class UI implements UiCtx {
           this.results.show(winner)
           break
       }
+    })
+    ev.on('net:status', ({ connected, message }) => {
+      if (message) this.popup(connected ? 'NETWORK' : 'CONNECTION INTERRUPTED', message)
+      else if (!connected) this.popup('CONNECTION INTERRUPTED', 'The connection to the host was lost.')
     })
     ev.on('ui:menu', ({ open }) => {
       if (open) {
@@ -229,6 +250,14 @@ export class UI implements UiCtx {
       return
     }
     if (e.repeat && (e.code === 'Enter' || e.code === 'Escape' || e.code === 'Space')) return
+    if (this.popupBox.active) {
+      if (NAV_KEYS.has(e.code)) e.preventDefault()
+      this.popupBox.key(e)
+      return
+    }
+    // Typing into a text field (join-by-code): only Enter/Escape reach the screen.
+    const typing = document.activeElement instanceof HTMLInputElement
+    if (typing && e.code !== 'Enter' && e.code !== 'Escape') return
     if (this.results.active) {
       if (NAV_KEYS.has(e.code)) e.preventDefault()
       this.results.key(e)
