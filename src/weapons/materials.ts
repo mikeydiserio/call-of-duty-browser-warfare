@@ -91,13 +91,23 @@ function std(set: PBRSet | null, o: { color?: number; metalness: number; rough?:
  * picks out bevels and sharp radii, which get polished to bare metal / scuffed
  * polymer — the way real parkerized and anodized finishes wear.
  */
+/**
+ * Image-based-light multiplier shared by every weapon/arm material. Scene
+ * environments override per-material envMapIntensity, so the viewmodel sets
+ * this each frame (keeps the gun readable in shade) and the menu preview sets
+ * it back to 1 around its own render.
+ */
+export const IBL_BOOST = { value: 1 }
+
 function wear<T extends MeshStandardMaterial>(m: T, color: number, strength: number): T {
   const wearColor = new Color(color)
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uWearColor = { value: wearColor }
     sh.uniforms.uWear = { value: strength }
+    sh.uniforms.uIblBoost = IBL_BOOST
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 uWearColor;\nuniform float uWear;')
+      .replace('#include <common>', '#include <common>\nuniform vec3 uWearColor;\nuniform float uWear;\nuniform float uIblBoost;')
+      .replace('#include <lights_fragment_maps>', '#include <lights_fragment_maps>\nradiance *= uIblBoost;\niblIrradiance *= uIblBoost;')
       .replace(
         '#include <map_fragment>',
         `#include <map_fragment>
@@ -120,6 +130,18 @@ function wear<T extends MeshStandardMaterial>(m: T, color: number, strength: num
   return m
 }
 
+/** IBL boost only (no edge wear) for fabric, skin, rubber. */
+function ibl<T extends MeshStandardMaterial>(m: T): T {
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uIblBoost = IBL_BOOST
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uIblBoost;')
+      .replace('#include <lights_fragment_maps>', '#include <lights_fragment_maps>\nradiance *= uIblBoost;\niblIrradiance *= uIblBoost;')
+  }
+  m.customProgramCacheKey = () => 'wpnIbl'
+  return m
+}
+
 /**
  * Build the shared material table (idempotent). Reflections come from each
  * scene's `environment` (game sky in first person, studio light in the menu
@@ -128,8 +150,8 @@ function wear<T extends MeshStandardMaterial>(m: T, color: number, strength: num
 export function initViewmodelMaterials(): void {
   if (ready) return
   ready = true
-  sets.gun = makeGunmetal(0x2c2e31, 0x8c8f92)
-  sets.blued = makeGunmetal(0x17191c, 0x5c6066)
+  sets.gun = makeGunmetal(0x585c61, 0xa8abae)
+  sets.blued = makeGunmetal(0x3e434a, 0x8a8f96)
   sets.steel = makeSteel(0xa4a8ac)
   sets.poly = makePolymer()
   sets.wood = makeWood()
@@ -141,12 +163,12 @@ export function initViewmodelMaterials(): void {
   table.set('metal', wear(std(sets.gun!, { metalness: 0.75, rough: 1, normalScale: 0.5 }), 0x9a9c9e, 0.85))
   table.set('steel', wear(std(sets.steel!, { metalness: 1, rough: 1, normalScale: 0.4 }), 0xd8dadc, 0.4))
   table.set('blued', wear(std(sets.blued!, { metalness: 0.85, rough: 0.85, normalScale: 0.45 }), 0x7c8086, 0.7))
-  table.set('poly', wear(std(sets.poly!, { color: 0x232427, metalness: 0.0, rough: 1, normalScale: 0.5 }), 0x55575a, 0.45))
+  table.set('poly', wear(std(sets.poly!, { color: 0x313337, metalness: 0.0, rough: 1, normalScale: 0.5 }), 0x55575a, 0.45))
   table.set('polyTan', wear(std(sets.poly!, { color: 0x8c7a58, metalness: 0.0, rough: 1, normalScale: 0.5 }), 0xb8a888, 0.4))
   table.set('wood', wear(std(sets.wood!, { metalness: 0.0, rough: 1, normalScale: 0.7 }), 0xb06a3a, 0.5))
-  table.set('rubber', std(sets.poly!, { color: 0x161616, metalness: 0, rough: 1.15, normalScale: 0.9 }))
-  table.set('brass', std(null, { color: 0xc89a3c, metalness: 1, rough: 0.28 }))
-  table.set('chrome', std(null, { color: 0xdadde0, metalness: 1, rough: 0.12 }))
+  table.set('rubber', ibl(std(sets.poly!, { color: 0x1c1c1c, metalness: 0, rough: 1.15, normalScale: 0.9 })))
+  table.set('brass', ibl(std(null, { color: 0xc89a3c, metalness: 1, rough: 0.28 })))
+  table.set('chrome', ibl(std(null, { color: 0xdadde0, metalness: 1, rough: 0.12 })))
   table.set('void', new MeshStandardMaterial({ color: 0x050505, roughness: 0.9, metalness: 0 }))
   table.set(
     'lens',
@@ -154,11 +176,11 @@ export function initViewmodelMaterials(): void {
   )
   table.set('glass', new MeshStandardMaterial({ color: 0x9fc6ff, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.1, depthWrite: false, side: DoubleSide, envMapIntensity: 2 }))
   table.set('dot', new MeshBasicMaterial({ color: new Color(1, 0.12, 0.05).multiplyScalar(4), toneMapped: false }))
-  table.set('glove', std(sets.glove!, { color: 0x2a2a26, metalness: 0, rough: 1, normalScale: 0.5 }))
-  table.set('skin', std(sets.skin!, { color: 0xffffff, metalness: 0, rough: 1, normalScale: 0.5 }))
-  table.set('camo', std(sets.camo!, { color: 0xffffff, metalness: 0, rough: 1, normalScale: 1.2 }))
-  table.set('strap', std(sets.glove!, { color: 0x3c3a31, metalness: 0, rough: 1, normalScale: 1.2 }))
-  table.set('grenade', std(sets.grenade!, { color: 0xffffff, metalness: 0.35, rough: 1, normalScale: 1.2 }))
+  table.set('glove', ibl(std(sets.glove!, { color: 0x2a2a26, metalness: 0, rough: 1, normalScale: 0.5 })))
+  table.set('skin', ibl(std(sets.skin!, { color: 0xffffff, metalness: 0, rough: 1, normalScale: 0.5 })))
+  table.set('camo', ibl(std(sets.camo!, { color: 0xffffff, metalness: 0, rough: 1, normalScale: 1.2 })))
+  table.set('strap', ibl(std(sets.glove!, { color: 0x3c3a31, metalness: 0, rough: 1, normalScale: 1.2 })))
+  table.set('grenade', ibl(std(sets.grenade!, { color: 0xffffff, metalness: 0.35, rough: 1, normalScale: 1.2 })))
   table.set('watch', new MeshStandardMaterial({ color: 0xffffff, roughness: 0.3, metalness: 0.3 }))
 
 }

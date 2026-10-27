@@ -21,7 +21,7 @@ import {
   WebGLRenderer,
 } from 'three'
 import type { WeaponId } from '../core/types'
-import { initViewmodelMaterials, makeStudioEnvironment } from './materials'
+import { IBL_BOOST, initViewmodelMaterials, makeStudioEnvironment } from './materials'
 import { getViewRig } from './rigs'
 
 const FOV = 24
@@ -130,7 +130,10 @@ export function weaponThumbnail(id: WeaponId, w = 240, h = 96): string {
   st.renderer.setPixelRatio(1)
   st.renderer.setSize(w * 2, h * 2, false)
   frame(st.camera, m, w / h, 1.08)
+  const boost = IBL_BOOST.value
+  IBL_BOOST.value = 1
   st.renderer.render(st.scene, st.camera)
+  IBL_BOOST.value = boost
   const url = st.renderer.domElement.toDataURL('image/png')
   st.scene.remove(m.pivot)
   if (prevParent) prevParent.add(m.pivot)
@@ -323,7 +326,10 @@ export class WeaponPreview {
     st.shadow.position.y = -this.model.height * 0.5 - this.model.radius * 0.18
     st.shadow.scale.set(this.model.radius * 2.4, 1, this.model.radius * 1.1)
     frame(st.camera, this.model, this.w / this.h, 1.04 * this.debugZoom)
+    const boost = IBL_BOOST.value
+    IBL_BOOST.value = 1
     st.renderer.render(st.scene, st.camera)
+    IBL_BOOST.value = boost
   }
 }
 

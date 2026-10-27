@@ -7,12 +7,12 @@
  * The WeaponSystem owns gameplay state and hands us an AnimInput each frame;
  * everything here is presentation only.
  */
-import { Euler, Group, Mesh, MeshStandardMaterial, type PerspectiveCamera, Quaternion, type Scene, Vector3 } from 'three'
+import { DirectionalLight, Euler, Group, Mesh, MeshStandardMaterial, type PerspectiveCamera, Quaternion, type Scene, Vector3 } from 'three'
 import type { RenderContext, WeaponId } from '../core/types'
 import { clamp, damp, lerp, smoothstep, Spring } from '../core/math'
 import type { MovementState } from './weapon-system'
 import { Arm } from './hands'
-import { initViewmodelMaterials, mat } from './materials'
+import { IBL_BOOST, initViewmodelMaterials, mat } from './materials'
 import { getViewRig, type Pose, type ViewRig } from './rigs'
 import { type BrassKind, WeaponFx } from './fx'
 import { CylinderGeometry } from 'three'
@@ -50,6 +50,8 @@ export interface AnimInput {
 }
 
 export const VM_FOV = 52
+/** Sky-reflection gain for the first-person weapon (MW2 keeps guns readable in shade). */
+const VM_IBL_BOOST = 2.6
 const VM_FOV_ADS = 40
 
 const seg = (u: number, a: number, b: number) => smoothstep(a, b, u)
@@ -145,6 +147,13 @@ export class Viewmodel {
     this.cam.near = 0.01
     this.cam.updateProjectionMatrix()
     this.scene.add(this.root)
+    // View-relative fill + rim so the weapon stays readable in shade (the
+    // renderer's viewmodel sun fades out when the player stands in shadow).
+    const fill = new DirectionalLight(0xd9e2ee, 1.5)
+    fill.position.set(-0.6, 1.0, 0.7)
+    const rim = new DirectionalLight(0xffe0bc, 0.9)
+    rim.position.set(0.9, 0.4, -0.6)
+    this.scene.add(fill, fill.target, rim, rim.target)
     this.root.add(this.gun, this.knifeHolder, this.fragHolder)
     this.root.add(this.armR.hand.root, this.armR.forearm.root, this.armL.hand.root, this.armL.forearm.root)
     this.fx = new WeaponFx(this.scene)
@@ -638,6 +647,7 @@ export class Viewmodel {
 
     this.root.updateMatrixWorld(true)
     this.fx.update(dt)
+    IBL_BOOST.value = VM_IBL_BOOST
   }
 
   private applyHand(arm: Arm, t: HandTarget) {
