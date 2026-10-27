@@ -93,7 +93,7 @@ export class SearchDestroyRules extends ModeRules {
 
   private startRound() {
     const attackers = this.attackersFor(this.mode.round)
-    const spawn = this.game.map.bombSpawn ?? this.sideCentre('tf141')
+    const spawn = this.game.map.bombSpawn ?? this.fallbackBombSpawn()
     const bomb: BombState = {
       attackers,
       carrier: null,
@@ -116,12 +116,13 @@ export class SearchDestroyRules extends ModeRules {
     this.game.events.emit('round:phase', { round: this.mode.round, phase: 'start', attackers })
   }
 
-  private sideCentre(side: Team): Vector3 {
-    const own = this.spawnsFor(side, false)
-    const c = new Vector3()
-    if (!own.length) return this.baseCentre(side)
-    for (const s of own) c.add(s.position)
-    return c.divideScalar(own.length)
+  /** No map bombSpawn: the attack-side spawn nearest that side's centre (always on walkable ground). */
+  private fallbackBombSpawn(): Vector3 {
+    const own = this.spawnsFor('tf141', false)
+    const c = this.baseCentre('tf141')
+    let best = own[0]?.position ?? c
+    for (const s of own) if (s.position.distanceTo(c) < best.distanceTo(c)) best = s.position
+    return best.clone()
   }
 
   /** Everyone spawns on their side's base each round. */
