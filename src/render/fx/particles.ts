@@ -172,19 +172,23 @@ void main(){
     a = tex.r * vCol.a;
     float shade = 0.72 + 0.55 * tex.g;
     rgb = vCol.rgb * shade;
-  } else if (kind < 1.5) {                // fire
-    float h = vParam.x;
-    float v = tex.r * (0.50 + 1.0 * tex.g);
-    float erode = (1.0 - h) * 0.78;
-    a = smoothstep(erode, erode + 0.16, v);
-    float t = clamp(v * (0.35 + h * 1.5), 0.0, 1.3);
-    vec3 c = mix(vec3(0.20, 0.025, 0.0), vec3(1.0, 0.28, 0.03), smoothstep(0.0, 0.40, t));
-    c = mix(c, vec3(1.0, 0.68, 0.22), smoothstep(0.32, 0.78, t));
-    c = mix(c, vec3(1.0, 0.95, 0.80), smoothstep(0.75, 1.2, t));
-    rgb = c * (1.0 + 1.4 * smoothstep(0.55, 1.2, t)) * vCol.rgb;
-    a *= vCol.a;
-    // hot cores add light, cooler sooty edges occlude like smoke
-    add = mix(0.15, 0.85, smoothstep(0.25, 0.9, t));
+  } else if (kind < 1.5) {                // fire: turbulent, sooty, luminance-capped
+    float h = vParam.x;                   // heat 1 → 0 over the particle's life
+    float n = tex.g;
+    float v = tex.r * (0.45 + 1.1 * n);
+    float erode = (1.0 - h) * 0.55;
+    a = smoothstep(erode, erode + 0.32, v);
+    // temperature: hottest in the dense centre, broken up by noise; soot pockets in the gaps
+    float t = clamp(v * h * 1.12 - (1.0 - n) * 0.35, 0.0, 1.0);
+    vec3 c = mix(vec3(0.1, 0.07, 0.05), vec3(0.5, 0.1, 0.015), smoothstep(0.0, 0.3, t));
+    c = mix(c, vec3(1.0, 0.4, 0.06), smoothstep(0.25, 0.6, t));
+    c = mix(c, vec3(1.0, 0.7, 0.26), smoothstep(0.62, 0.98, t));
+    // peak ~2 (HDR) so bloom only kisses the hottest core instead of smearing a white blob
+    rgb = c * (0.55 + 1.2 * smoothstep(0.3, 1.0, t)) * vCol.rgb;
+    // while hot, the cool sooty fringe is transparent (no dark outlines); once cooled it reads as smoke
+    a *= mix(1.0, smoothstep(0.02, 0.3, t), h) * vCol.a;
+    // mostly occluding (sooty), only the hot core adds light
+    add = 0.4 * smoothstep(0.45, 1.0, t);
   } else if (kind < 2.5) {                // hard dot (grains / chips)
     a = (1.0 - smoothstep(0.62, 0.92, r)) * vCol.a;
     rgb = vCol.rgb;

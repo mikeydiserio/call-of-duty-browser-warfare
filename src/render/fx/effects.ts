@@ -6,7 +6,7 @@
  */
 import { Color, PointLight, Vector3 } from 'three'
 import type { Game } from '../../core/game'
-import type { Actor, Surface } from '../../core/types'
+import type { Actor, Surface, WorldHit } from '../../core/types'
 import { bakePuffAtlas } from './atlas'
 import { DECAL, DecalPool } from './decals'
 import { BillboardBatch, type CollideFn, KIND_DOT, KIND_FIRE, KIND_GLOW, KIND_PUFF, KIND_STAR, Spec, StreakBatch } from './particles'
@@ -23,6 +23,7 @@ const _n = new Vector3()
 const _t = new Vector3()
 const _u = new Vector3()
 const _w = new Vector3()
+const _g = new Vector3()
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a)
 const pick = <T>(arr: readonly T[]): T => arr[(Math.random() * arr.length) | 0]!
@@ -51,6 +52,8 @@ export class Effects {
   private wispAcc = 0
   private tracerCount = 0
   private sunProbeT = 0
+  /** Scratch hit for allocation-free raycasts (valid until the next `ray` call). */
+  private readonly hit: WorldHit = { point: new Vector3(), normal: new Vector3(), distance: 0, surface: 'concrete' }
 
   constructor(private game: Game) {
     const r = game.render
@@ -74,11 +77,10 @@ export class Effects {
     this.lit = this.sunLit
     this.wind.set(-env.sunDirection.x, 0, -env.sunDirection.z).normalize().multiplyScalar(-0.9)
 
-    const col = game.collision
     this.collideFn = (x, y, z, dx, dy, dz, dist, out) => {
       _o.set(x, y, z)
       _d.set(dx, dy, dz)
-      const hit = col.raycast(_o, _d, dist)
+      const hit = this.ray(_o, _d, dist)
       if (!hit) return false
       out[0] = hit.point.x
       out[1] = hit.point.y
@@ -101,6 +103,10 @@ export class Effects {
     ev.on('match:phase', ({ phase }) => {
       if (phase === 'intro' || phase === 'menu') this.clear()
     })
+  }
+
+  private ray(o: Vector3, d: Vector3, max: number): WorldHit | null {
+    return this.game.collision.raycastInto(o, d, max, this.hit) ? this.hit : null
   }
 
   clear() {
@@ -148,11 +154,11 @@ export class Effects {
     // Two rays (eye + a hand-height offset) give a softer transition at shadow edges.
     let vis = 0
     _o.copy(r.camera.position)
-    if (!this.game.collision.raycast(_o, r.sunToward, 160)) vis += 0.5
+    if (!this.ray(_o, r.sunToward, 160)) vis += 0.5
     _o.y -= 0.25
     _w.set(0, 0, -0.35).applyQuaternion(r.camera.quaternion)
     _o.add(_w)
-    if (!this.game.collision.raycast(_o, r.sunToward, 160)) vis += 0.5
+    if (!this.ray(_o, r.sunToward, 160)) vis += 0.5
     r.setViewmodelSunVisibility(vis)
   }
 
@@ -249,7 +255,7 @@ export class Effects {
   /** Pick the particle light level for an effect at p: sunlit or in shadow (one BVH ray). */
   private lightAt(p: Vector3) {
     _o.copy(p).addScaledVector(this.game.render.sunToward, 0.3)
-    this.lit = this.game.collision.raycast(_o, this.game.render.sunToward, 120) ? this.shadeLit : this.sunLit
+    this.lit = this.ray(_o, this.game.render.sunToward, 120) ? this.shadeLit : this.sunLit
   }
 
   private impact(point: Vector3, normal: Vector3, surface: Surface, shooter: Actor | null) {
@@ -665,12 +671,11 @@ export class Effects {
       this.billboards.emit(s)
     }
     // Blood decal on the wall behind / floor below.
-    const col = this.game.collision
-    const wall = col.raycast(p, _u, 2.5)
+    const wall = this.ray(p, _u, 2.5)
     if (wall) this.decals.add(wall.point, wall.normal, pick(DECAL.blood), rand(0.4, 0.8) * (1 - wall.distance / 4))
     if (Math.random() < 0.5) {
       _t.set(rand(-0.3, 0.3), -1, rand(-0.3, 0.3)).normalize()
-      const floor = col.raycast(p, _t, 2.2)
+      const floor = this.ray(p, _t, 2.2)
       if (floor && floor.normal.y > 0.6) this.decals.add(floor.point, floor.normal, DECAL.bloodPool[0], rand(0.25, 0.45))
     }
   }
@@ -743,7 +748,7 @@ export class Effects {
     const cam = this.game.render.camera
     _w.set(0, -0.1, -0.9).applyQuaternion(cam.quaternion).add(cam.position)
     // pull the light back if a wall is right in front, so it lights the wall not the far side
-    const hit = this.game.collision.raycast(cam.position, _t.subVectors(_w, cam.position).normalize(), 0.95)
+    const hit = this.ray(cam.position, _t.subVectors(_w, cam.position).normalize(), 0.95)
     if (hit) _w.copy(hit.point).addScaledVector(_t, -0.15)
     void origin
     void dir
@@ -874,78 +879,80 @@ export class Effects {
     const L = this.lit
     // ground under the blast
     _n.set(0, 1, 0)
-    const ground = g.collision.raycast(_o.copy(pos).setY(pos.y + 0.4), _d.set(0, -1, 0), 2)
+    const ground = this.ray(_o.copy(pos).setY(pos.y + 0.4), _d.set(0, -1, 0), 2)
     const gy = ground ? ground.point.y : pos.y - 0.1
-    if (ground) _n.copy(ground.normal)
+    if (ground) {
+      _n.copy(ground.normal)
+      _g.copy(ground.point)
+    }
     const onSand = !ground || ground.surface === 'sand' || ground.surface === 'dirt'
 
-    // 1. white-hot flash
+    // 1. very short white-orange flash (~0.1 s) — the punch, not the body of the blast
     s.reset().pos(pos)
     s.y += 0.5
-    s.life = 0.14
-    s.s0 = 5
-    s.s1 = 3.5
+    s.life = 0.07
+    s.s0 = 3.2
+    s.s1 = 2.2
     s.kind = KIND_STAR
     s.seed = Math.random()
-    s.r0 = s.r1 = 4
-    s.g0 = s.g1 = 2.6
-    s.b0 = s.b1 = 1.2
+    s.r0 = s.r1 = 2.2
+    s.g0 = s.g1 = 1.5
+    s.b0 = s.b1 = 0.8
     s.a0 = 1
     s.a1 = 0
     s.fadeIn = 0.01
     this.billboards.emit(s)
     s.reset().pos(pos)
     s.y += 0.6
-    s.life = 0.3
-    s.s0 = 3
-    s.s1 = 5
+    s.life = 0.12
+    s.s0 = 2.2
+    s.s1 = 3.2
     s.kind = KIND_GLOW
     s.add = 1
-    s.r0 = 2.2
-    s.g0 = 0.9
-    s.b0 = 0.25
-    s.r1 = 1.5
-    s.g1 = 0.4
-    s.b1 = 0.1
+    s.r0 = 1.4
+    s.g0 = 0.6
+    s.b0 = 0.15
+    s.r1 = 0.6
+    s.g1 = 0.15
+    s.b1 = 0.03
     s.a0 = 1
     s.a1 = 0
     s.fadeIn = 0.01
     this.billboards.emit(s)
 
-    // 2. fireball — expanding, eroding flame puffs
-    for (let i = 0; i < 16; i++) {
+    // 2. fireball — short-lived turbulent flame puffs that cool to soot
+    for (let i = 0; i < 12; i++) {
       this.sprayDir(_t, _n, 1.3)
-      const sp = rand(3, 9)
+      const sp = rand(2, 6)
       s.reset().pos(pos)
-      s.x += _t.x * 0.3
-      s.y += 0.3 + _t.y * 0.3
-      s.z += _t.z * 0.3
+      s.x += _t.x * 0.25
+      s.y += 0.3 + _t.y * 0.25
+      s.z += _t.z * 0.25
       s.vx = _t.x * sp
-      s.vy = _t.y * sp * 0.8 + rand(1, 3)
+      s.vy = _t.y * sp * 0.7 + rand(0.8, 2.2)
       s.vz = _t.z * sp
-      s.drag = 4.5
-      s.grav = -1.2
-      s.life = rand(0.45, 0.85)
-      s.delay = rand(0, 0.06)
-      s.s0 = rand(0.8, 1.3)
-      s.s1 = rand(2.2, 3.4)
+      s.drag = 5
+      s.grav = -1
+      s.life = rand(0.28, 0.5)
+      s.delay = rand(0, 0.03)
+      s.s0 = rand(0.6, 1)
+      s.s1 = rand(1.6, 2.4)
       s.rot = Math.random() * 6.28
       s.rv = rand(-1.5, 1.5)
       s.kind = KIND_FIRE
       s.frame = (Math.random() * 4) | 0
-      s.heat0 = rand(0.95, 1.15)
+      s.heat0 = rand(1, 1.1)
       s.heat1 = 0
-      s.add = 1
-      s.r0 = s.g0 = s.b0 = 1.1
-      s.r1 = s.g1 = s.b1 = 0.5
+      s.r0 = s.g0 = s.b0 = 1
+      s.r1 = s.g1 = s.b1 = 0.8
       s.a0 = 1
-      s.a1 = 0.6
+      s.a1 = 0.7
       s.fadeIn = 0.02
       this.billboards.emit(s)
     }
 
     // 3. dark smoke column, rising and drifting with the wind
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 14; i++) {
       this.sprayDir(_t, _n, 0.9)
       const sp = rand(1, 4)
       s.reset().pos(pos)
@@ -955,21 +962,21 @@ export class Effects {
       s.vz = _t.z * sp + this.wind.z * 0.6
       s.drag = 0.9
       s.grav = -0.25
-      s.delay = rand(0.05, 0.35)
-      s.life = rand(4, 7.5)
-      s.s0 = rand(0.9, 1.4)
-      s.s1 = rand(3.5, 5.5)
+      s.delay = rand(0.02, 0.2)
+      s.life = rand(3.5, 6.5)
+      s.s0 = rand(0.7, 1.1)
+      s.s1 = rand(2.4, 3.8)
       s.rot = Math.random() * 6.28
       s.rv = rand(-0.25, 0.25)
       s.frame = (Math.random() * 4) | 0
       const k = rand(0.85, 1.15)
-      s.r0 = 0.07 * L * k
-      s.g0 = 0.06 * L * k
-      s.b0 = 0.05 * L * k
-      s.r1 = 0.3 * L
-      s.g1 = 0.27 * L
-      s.b1 = 0.23 * L
-      s.a0 = rand(0.75, 0.9)
+      s.r0 = 0.09 * L * k
+      s.g0 = 0.075 * L * k
+      s.b0 = 0.06 * L * k
+      s.r1 = 0.24 * L
+      s.g1 = 0.21 * L
+      s.b1 = 0.18 * L
+      s.a0 = rand(0.85, 0.95)
       s.a1 = 0
       s.fadeIn = 0.04
       this.billboards.emit(s)
@@ -995,7 +1002,7 @@ export class Effects {
       s.frame = (Math.random() * 4) | 0
       if (onSand) this.sandColor(s, 0.9)
       else this.rgb(s, 0.5, 0.47, 0.42)
-      s.a0 = 0.55
+      s.a0 = 0.7
       s.a1 = 0
       s.fadeIn = 0.03
       this.billboards.emit(s)
@@ -1018,7 +1025,7 @@ export class Effects {
       s.frame = (Math.random() * 4) | 0
       if (onSand) this.sandColor(s, 0.75)
       else this.rgb(s, 0.4, 0.37, 0.33)
-      s.a0 = 0.7
+      s.a0 = 0.85
       s.a1 = 0
       this.billboards.emit(s)
     }
@@ -1077,15 +1084,17 @@ export class Effects {
     }
 
     // 7. scorch decal
-    if (ground) this.decals.add(ground.point, ground.normal, pick(DECAL.scorch), rand(3.2, 4.2))
+    if (ground) this.decals.add(_g, _n, pick(DECAL.scorch), rand(3.2, 4.2))
 
     // 8. light + camera response
-    this.flashLight(_w.copy(pos).setY(pos.y + 1.2), 260, 0.4, 26, 0xff9040)
+    this.flashLight(_w.copy(pos).setY(pos.y + 1.2), 140, 0.25, 22, 0xff9040)
     const camPos = r.camera.position
     const d = camPos.distanceTo(pos)
     r.effects.shake = Math.min(1.5, r.effects.shake + Math.max(0, 1.25 - d / 22))
-    if (d < 7 && g.collision.lineOfSight(camPos, _w.copy(pos).setY(pos.y + 0.5))) {
-      r.effects.flash = Math.max(r.effects.flash, (1 - d / 7) * 0.6)
+    // whiteout only up close and only with line of sight to the blast; falls off quadratically
+    if (d < 6 && g.collision.lineOfSight(camPos, _w.copy(pos).setY(pos.y + 0.5))) {
+      const k = 1 - d / 6
+      r.effects.flash = Math.max(r.effects.flash, k * k * 0.45)
     }
   }
 }
