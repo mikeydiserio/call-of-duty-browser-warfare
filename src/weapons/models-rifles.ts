@@ -68,7 +68,7 @@ export function buildACR(): ModelSpec {
   b.add('body', 'blued', lathe([[0, 0.585], [0.0105, 0.585], [0.0125, 0.59], [0.0125, 0.64], [0.0105, 0.648], [0, 0.648]], 0, 0.065, 20))
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI
-    b.add('body', 'void', pin('x', 0.0017, 0.04, 0, 0.065, 0.62, 6).rotateZ(a).translate(0, 0, 0))
+    b.add('body', 'void', pin('x', 0.0017, 0.027, 0, 0, 0.62, 6).rotateZ(a).translate(0, 0.065, 0))
   }
   b.add('body', 'void', cyl(0.0058, 0.0058, 0.646, 0.6485, 0, 0.065, 12))
   // Stock + buttpad
@@ -83,9 +83,9 @@ export function buildACR(): ModelSpec {
   b.add('body', 'glass', cyl(0.0158, 0.0158, 0.087, 0.0875, 0, 0.158, 24))
   b.add('body', 'dot', new (SphereDot)(0, 0.158, -0.03))
   // Magazine (STANAG-style, curved)
-  b.add('mag', 'poly', prof(strip((t) => [0.0775 + 0.036 * t * t, -0.03 - 0.168 * t], () => 0.034, 10), 0.0335, { r: 0.002 }))
-  b.add('mag', 'metal', rbox(0.095, 0.138, -0.205, -0.196, 0.036, 0, 0.002))
-  b.add('mag', 'void', box(0.058, 0.06, -0.12, -0.06, -0.0171, 0.0171))
+  b.add('mag', 'poly', prof(strip((t) => [0.0775 + 0.03 * t * t, -0.03 - 0.17 * t], () => 0.06, 10), 0.024, { r: 0.003 }))
+  b.add('mag', 'metal', rbox(0.072, 0.146, -0.209, -0.198, 0.028, 0, 0.002))
+  for (let i = 0; i < 3; i++) b.add('mag', 'void', box(0.06 + i * 0.006, 0.063 + i * 0.006, -0.16 + i * 0.001, -0.07, -0.0123, 0.0123))
   // Charging handle (left side)
   b.add('charge', 'metal', box(0.095, 0.128, 0.086, 0.098, -0.04, -0.0225))
   b.add('charge', 'metal', rbox(0.1, 0.122, 0.078, 0.108, 0.01, -0.043, 0.003))
@@ -154,8 +154,8 @@ export function buildM4A1(): ModelSpec {
   b.add('body', 'metal', rbox(-0.056, -0.04, 0.142, 0.168, 0.003, -0.0122, 0.0005))
   b.add('body', 'metal', rbox(-0.056, -0.04, 0.142, 0.168, 0.003, 0.0122, 0.0005))
   // Magazine
-  b.add('mag', 'metal', prof(strip((t) => [0.074 + 0.03 * t * t, -0.03 - 0.17 * t], () => 0.033, 10), 0.0335, { r: 0.002 }))
-  b.add('mag', 'poly', rbox(0.088, 0.132, -0.208, -0.198, 0.036, 0, 0.002))
+  b.add('mag', 'metal', prof(strip((t) => [0.074 + 0.03 * t * t, -0.03 - 0.17 * t], () => 0.06, 10), 0.023, { r: 0.002 }))
+  b.add('mag', 'poly', rbox(0.07, 0.142, -0.21, -0.2, 0.027, 0, 0.002))
   // Charging handle (T-handle, rear top)
   b.add('charge', 'metal', rbox(-0.15, -0.1, 0.1, 0.108, 0.009, 0, 0.002))
   b.add('charge', 'metal', rbox(-0.152, -0.138, 0.098, 0.112, 0.034, 0, 0.003))
@@ -222,9 +222,9 @@ export function buildAK47(): ModelSpec {
   b.add('body', 'steel', rbox(0.15, 0.17, 0.122, 0.133, 0.006, -0.0095, 0.001))
   b.add('body', 'steel', rbox(0.15, 0.17, 0.122, 0.133, 0.006, 0.0095, 0.001))
   // Curved banana magazine
-  b.add('mag', 'blued', prof(strip((t) => [0.07 + 0.12 * Math.pow(t, 1.9), -0.012 - 0.2 * t], () => 0.036, 12), 0.034, { r: 0.002 }))
-  b.add('mag', 'metal', rbox(0.178, 0.226, -0.225, -0.214, 0.037, 0, 0.002))
-  for (let i = 0; i < 4; i++) b.add('mag', 'void', box(0.08 + i * 0.04, 0.083 + i * 0.04, -0.11, -0.05, -0.0176, 0.0176))
+  b.add('mag', 'blued', prof(strip((t) => [0.07 + 0.12 * Math.pow(t, 1.9), -0.012 - 0.2 * t], () => 0.07, 12), 0.027, { r: 0.003 }))
+  b.add('mag', 'metal', rbox(0.15, 0.234, -0.224, -0.212, 0.03, 0, 0.002))
+  for (let i = 0; i < 4; i++) b.add('mag', 'void', box(0.07 + i * 0.03, 0.073 + i * 0.03, -0.11, -0.05, -0.0138, 0.0138))
   // Charging handle (right side)
   b.add('charge', 'metal', box(0.07, 0.092, 0.07, 0.082, 0.022, 0.04))
   b.add('charge', 'metal', rbox(0.067, 0.088, 0.066, 0.092, 0.01, 0.045, 0.003))
@@ -292,8 +292,8 @@ export function buildUMP45(): ModelSpec {
   b.add('body', 'glass', box(0.0, 0.0005 + 0.088, 0.128, 0.172, -0.0155, -0.0153))
   b.add('body', 'dot', new (SphereDot)(0, 0.151, -0.05))
   // Magazine
-  b.add('mag', 'poly', prof(strip((t) => [0.0785 + 0.012 * t, -0.03 - 0.18 * t], () => 0.036, 8), 0.029, { r: 0.002 }))
-  b.add('mag', 'poly', rbox(0.062, 0.102, -0.218, -0.208, 0.034, 0, 0.002))
+  b.add('mag', 'poly', prof(strip((t) => [0.0785 + 0.012 * t, -0.03 - 0.18 * t], () => 0.05, 8), 0.027, { r: 0.003 }))
+  b.add('mag', 'poly', rbox(0.056, 0.114, -0.218, -0.208, 0.031, 0, 0.002))
   // Charging handle
   b.add('charge', 'metal', rbox(-0.12, -0.08, 0.108, 0.122, 0.016, 0, 0.003))
 

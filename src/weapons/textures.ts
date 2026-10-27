@@ -129,12 +129,12 @@ export function makeGunmetal(tintBase = 0x2a2c2e, wearColor = 0x8d8f91, size = 5
   const cd = cimg.data
   // Scratch field: draw random thin lines into a wear buffer.
   const scratch = new Float32Array(size * size)
-  for (let i = 0; i < 260; i++) {
+  for (let i = 0; i < 140; i++) {
     let x = rnd() * size
     let y = rnd() * size
     const ang = rnd() * Math.PI
     const len = 6 + rnd() * 60
-    const a = 0.25 + rnd() * 0.75
+    const a = 0.15 + rnd() * 0.45
     const dx = Math.cos(ang)
     const dy = Math.sin(ang)
     for (let s = 0; s < len; s++) {
@@ -155,7 +155,7 @@ export function makeGunmetal(tintBase = 0x2a2c2e, wearColor = 0x8d8f91, size = 5
       const speck = N3.at(u * 200, v * 200, 200) > 0.93 ? 1 : 0
       // Blotchy wear zones, concentrated where big noise is high.
       const wz = Math.max(0, (big - 0.55) * 3)
-      const w = Math.min(1, wz * (0.4 + scratch[i]! * 1.2) + scratch[i]! * 0.55 + speck * 0.25)
+      const w = Math.min(1, wz * (0.35 + scratch[i]! * 0.8) + scratch[i]! * 0.3 + speck * 0.12)
       const shade = 0.82 + fine * 0.3 + (big - 0.5) * 0.35
       for (let k = 0; k < 3; k++) {
         const b = base[k]! * shade
@@ -308,13 +308,13 @@ export function makeGlove(size = 256): PBRSet {
       const i = y * size + x
       const wv = (Math.sin(x * 1.57) * Math.sin(y * 1.57) + 1) * 0.5
       const n = N1.fbm(u, v, 6, 3)
-      const sh = 0.55 + n * 0.55 + wv * 0.18
+      const sh = 0.62 + n * 0.45 + wv * 0.08
       const g = 255 * sh
       cd[i * 4] = g
       cd[i * 4 + 1] = g
       cd[i * 4 + 2] = g
       cd[i * 4 + 3] = 255
-      height[i] = wv * 0.6 + n * 0.3
+      height[i] = wv * 0.25 + n * 0.5
       rough[i] = 0.72 + n * 0.2
     }
   }

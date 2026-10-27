@@ -1,8 +1,33 @@
-// STUB — owned by the weapons agent. Keep the exported signature; the AI agent uses it for bots.
-import { BoxGeometry, Group, Mesh, MeshStandardMaterial, type Object3D } from 'three'
+// Third-person weapon models for bots: the same procedural profiles as the
+// viewmodel, baked into one vertex-coloured mesh per weapon (one draw call).
+import { type BufferGeometry, Group, Mesh, MeshStandardMaterial, type Object3D } from 'three'
 import type { WeaponId } from '../core/types'
+import { WORLD_COLORS, type MatKey } from './materials'
+import { getSpec } from './rigs'
 
-const mat = new MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.5, metalness: 0.6 })
+const mat = new MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.45 })
+const geoCache = new Map<WeaponId, BufferGeometry>()
+
+const toRGB = (hex: number): [number, number, number] => {
+  // vertex colours are linear
+  const c = (v: number) => Math.pow(v / 255, 2.2)
+  return [c((hex >> 16) & 255), c((hex >> 8) & 255), c(hex & 255)]
+}
+
+function geometryFor(id: WeaponId): BufferGeometry {
+  let g = geoCache.get(id)
+  if (g) return g
+  const spec = getSpec(id)
+  g = spec.b.buildWorld((k: MatKey) => {
+    const c = WORLD_COLORS[k]
+    return c === undefined ? null : toRGB(c)
+  })
+  const [gx, gy, gz] = spec.meta.grip
+  g.translate(-gx, -gy, -gz)
+  g.computeBoundingSphere()
+  geoCache.set(id, g)
+  return g
+}
 
 /**
  * Third-person weapon model held by bots. Origin at the pistol grip, barrel
@@ -11,14 +36,16 @@ const mat = new MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.5, metalnes
  * cheap to call many times.
  */
 export function createWorldWeaponModel(id: WeaponId): Object3D {
-  const g = new Group()
-  const len = id === 'intervention' ? 1.2 : id === 'usp45' || id === 'deagle' ? 0.22 : 0.85
-  const body = new Mesh(new BoxGeometry(0.06, 0.1, len), mat)
-  body.position.set(0, 0.05, -len * 0.35)
-  g.add(body)
+  const root = new Group()
+  root.name = `wm_${id}`
+  const mesh = new Mesh(geometryFor(id), mat)
+  mesh.castShadow = true
+  mesh.receiveShadow = false
+  root.add(mesh)
+  const meta = getSpec(id).meta
   const muzzle = new Group()
   muzzle.name = 'muzzle'
-  muzzle.position.set(0, 0.06, -len * 0.85)
-  g.add(muzzle)
-  return g
+  muzzle.position.set(meta.muzzle[0] - meta.grip[0], meta.muzzle[1] - meta.grip[1], meta.muzzle[2] - meta.grip[2])
+  root.add(muzzle)
+  return root
 }
