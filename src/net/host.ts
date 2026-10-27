@@ -60,6 +60,8 @@ export class HostSession implements NetHooks {
   private bytesAcc = 0
   private bytesT = 0
   seed = 0
+  /** Debug counters (fire requests received / rejected by validation). */
+  counters = { fire: 0, rejected: 0 }
 
   constructor(
     private game: Game,
@@ -320,11 +322,13 @@ export class HostSession implements NetHooks {
         if (!r || !r.alive || g.mode.phase !== 'playing') return
         const def = WEAPONS[msg.w]
         if (!def || msg.d.length > Math.max(1, def.pellets) || msg.d.length === 0) return
-        const now = g.time
-        if (now - r.lastFireAt < (60 / def.rpm) * 0.6) return // rate of fire (loose: jitter/batching)
-        r.lastFireAt = now
+        // Real time, not game time: frame dt is clamped on slow hosts.
+        const now = performance.now() / 1000
+        this.counters.fire++
+        if (now - r.lastFireAt < (60 / def.rpm) * 0.6) return void this.counters.rejected++ // rate of fire (loose: jitter/batching)
         const origin = new Vector3(...msg.o)
-        if (origin.distanceTo(r.getEyePosition(_eye)) > 3) return // origin must be near the proxy
+        if (origin.distanceTo(r.getEyePosition(_eye)) > 3) return void this.counters.rejected++ // origin must be near the proxy
+        r.lastFireAt = now
         const muzzle = new Vector3(...msg.m)
         if (muzzle.distanceTo(origin) > 2) muzzle.copy(origin)
         r.stats.shotsFired++

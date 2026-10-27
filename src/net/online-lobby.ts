@@ -329,12 +329,21 @@ export class OnlineLobby implements LobbyService {
     }
     const link = this.hostLink!
     this.client = new ClientSession(this.game, link)
-    link.onReliable = (msg) => this.onClientReliable(msg)
-    link.onState = (buf) => this.client?.handleState(buf)
+    link.onReliable = (msg) => {
+      this.lastLobbyMsg = performance.now()
+      this.onClientReliable(msg)
+    }
+    link.onState = (buf) => {
+      this.lastLobbyMsg = performance.now()
+      this.client?.handleState(buf)
+    }
     link.onClose = () => this.hostGone('Lost connection to the host')
     this.lastLobbyMsg = performance.now()
+    // Long main-thread stalls (match loading) must not count as silence: check twice in a row.
+    let silent = 0
     this.beatTimer = window.setInterval(() => {
-      if (performance.now() - this.lastLobbyMsg > 12000) this.hostGone('The host stopped responding')
+      silent = performance.now() - this.lastLobbyMsg > 20000 ? silent + 1 : 0
+      if (silent >= 2) this.hostGone('The host stopped responding')
       else link.sendReliable({ t: 'ping', at: performance.now() })
     }, 1000)
     this.setRole('client', true)
