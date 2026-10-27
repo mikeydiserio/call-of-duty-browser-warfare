@@ -241,7 +241,24 @@ export const ICON = {
     <rect x="26" y="12" width="12" height="7" rx="2"/>
     <path d="M39 12 L52 9 Q55 9 55 12 V15 L40 19 Z"/>
     <path d="M18 32 H46 M17 42 H47 M32 20 V56" stroke="#000" stroke-opacity=".45" stroke-width="2" fill="none"/></svg>`,
+  bomb: `<svg class="gicon" viewBox="0 0 64 64" fill="currentColor" aria-hidden="true">
+    <rect x="6" y="20" width="52" height="30" rx="3"/>
+    <rect x="12" y="25" width="22" height="13" rx="1" class="d"/>
+    <rect x="14" y="27" width="18" height="9" fill="#ff3a2a"/>
+    <rect x="40" y="25" width="5" height="5" rx="1" class="d"/><rect x="47" y="25" width="5" height="5" rx="1" class="d"/>
+    <rect x="40" y="32" width="5" height="5" rx="1" class="d"/><rect x="47" y="32" width="5" height="5" rx="1" class="d"/>
+    <rect x="12" y="42" width="40" height="3" class="d"/>
+    <path d="M18 20 Q18 10 30 10 H42" stroke="currentColor" stroke-width="3" fill="none"/></svg>`,
   chevron: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 4 L18 12 L8 20 L6 18 L13 12 L6 6 Z"/></svg>`,
+}
+
+// ─── Objective marker (Domination flag / bomb site) ──────────────────────────
+
+/** Square objective badge with its letter; colour comes from currentColor. */
+export function objectiveSvg(letter: string, cls = ''): string {
+  return `<svg class="objicon ${cls}" viewBox="0 0 48 48" aria-hidden="true">
+    <rect x="3" y="3" width="42" height="42" rx="3" fill="rgba(8,10,6,.72)" stroke="currentColor" stroke-width="3"/>
+    <text x="24" y="34" text-anchor="middle" font-family="Saira Condensed, sans-serif" font-weight="800" font-size="30" fill="currentColor">${letter}</text></svg>`
 }
 
 // ─── Team emblems ──────────────────────────────────────────────────────────

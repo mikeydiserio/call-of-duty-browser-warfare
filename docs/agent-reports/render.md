@@ -41,3 +41,44 @@ World RenderPass → viewmodel RenderPass (depth cleared) → mipmap Bloom (thre
 1. `CollisionWorld.raycast`: add an allocation-free variant that writes into an `out` object. It is hot in FX and AI.
 2. Switch the BVH option `maxLeafSize` to `targetLeafSize`.
 3. Optionally emit `weapon:fire` with the world-space muzzle point for the player too. The player light is currently placed at a fixed offset from the camera.
+
+---
+
+## Follow-up after integration (merged `main` 8d28d27)
+
+Fixed in `src/render/**` only. Sequence: `render/explosion_sequence.png` (real Rust map; rows are 4 m at 0.03/0.10/0.30/1.2 s, 10 m at 0.05/0.30/1.5 s, 25 m at 0.05/0.30/1.5 s; FX stepped manually at 1/60 s).
+
+1. **Fireball no longer blows out to white.**
+   - The flash phase is about 0.1 s: a star (0.07 s) plus a glow (0.12 s), at roughly half the old HDR intensity.
+   - The fire is now 12 short-lived (0.28–0.5 s) turbulent puffs.
+   - Rewritten fire shader:
+     - Noise-driven temperature gradient: soot → deep red → orange → yellow.
+     - Peak luminance capped at about 1.75×, so bloom only touches the core.
+     - Mostly alpha-blended; only the hottest core is additive.
+     - The sooty fringe is transparent while hot, so there are no dark outlines, and it cools into smoke.
+2. **Smoke, dust and debris after the flash.**
+   - Smoke starts earlier (0.02–0.2 s), is darker grey-brown and denser, and is sized 2.4–3.8 m.
+   - The dust ring and dirt plume are more opaque.
+   - Debris and sparks are unchanged.
+   - The ground scorch decal was already present.
+3. **Camera whiteout:** only within 6 m with line of sight, quadratic falloff, at most 0.45. At 4 m that gives about 0.05. The flash light was cut from 260 to 140 cd and lasts 0.25 s.
+4. **Contact AO:** new `render/ao.ts`, enabled on medium and high, off on low.
+   - Depth-only: normals come from depth derivatives, with 12 spiral samples, range falloff and fade beyond 33–60 m.
+   - No NormalPass, because the built-in SSAO would re-render the whole scene and double the draw calls.
+   - The pass runs between the world and viewmodel passes, so the gun never gets world AO (verified).
+   - Effect: visible darkening under barriers, sandbags and pipe saddles.
+5. **`raycastInto` everywhere:** all FX, sun-probe and decal raycasts now use it with one scratch `WorldHit`, so they don't allocate.
+
+**`renderer.info` on the real map** (high quality, 1920×1080, SwiftShader; real-GPU FPS not measured):
+
+| Scene | Draw calls | Triangles | Programs |
+|---|---|---|---|
+| Base view, before AO | 198 | 843,133 | 32 |
+| With AO | 199 (+1, fullscreen pass) | +1 | 33 (+1) |
+| During a grenade | 202 | +~250 (instanced quads) | — |
+
+- The grenade adds at most 3 draw calls: billboards, streaks and decals.
+- A grenade spawns about 90 billboards and 36 streaks.
+- `bunx tsc --noEmit` is clean.
+
+**Known issue:** the `THREE.Material: parameter 'side' has value of undefined` console warnings come from code outside `src/render`.

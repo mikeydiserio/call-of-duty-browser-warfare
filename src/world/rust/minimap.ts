@@ -3,10 +3,17 @@
  * North-up: canvas covers exactly `bounds`, +X right, −Z up.
  */
 import type { Vector3 } from 'three'
+import type { ObjectivePoint } from '../../core/types'
 import type { Footprint } from './props'
 import type { Track } from './terrain'
 
-export function drawMinimap(bounds: { minX: number; maxX: number; minZ: number; maxZ: number }, fps: Footprint[], tracks: Track[], pipes: Vector3[][]): HTMLCanvasElement {
+export function drawMinimap(
+  bounds: { minX: number; maxX: number; minZ: number; maxZ: number },
+  fps: Footprint[],
+  tracks: Track[],
+  pipes: Vector3[][],
+  obj: { flags: ObjectivePoint[]; sites: ObjectivePoint[] } = { flags: [], sites: [] },
+): HTMLCanvasElement {
   const S = 512
   const cv = document.createElement('canvas')
   cv.width = cv.height = S
@@ -100,6 +107,27 @@ export function drawMinimap(bounds: { minX: number; maxX: number; minZ: number; 
       }
     }
     g.restore()
+  }
+  // objectives, drawn lightly (the UI overlays live state): flags = letter in a circle,
+  // bomb sites = letter in a square
+  g.font = 'bold 15px "Saira Condensed", "Arial Narrow", sans-serif'
+  g.textAlign = 'center'
+  g.textBaseline = 'middle'
+  for (const [list, round] of [[obj.flags, true], [obj.sites, false]] as [ObjectivePoint[], boolean][]) {
+    for (const o of list) {
+      const x = X(o.position.x)
+      const y = Z(o.position.z)
+      g.fillStyle = 'rgba(20,20,16,0.45)'
+      g.strokeStyle = 'rgba(225,222,205,0.55)'
+      g.lineWidth = 1.5
+      g.beginPath()
+      if (round) g.arc(x, y, 10, 0, Math.PI * 2)
+      else g.rect(x - 9, y - 9, 18, 18)
+      g.fill()
+      g.stroke()
+      g.fillStyle = 'rgba(235,232,215,0.75)'
+      g.fillText(o.id, x, y + 1)
+    }
   }
   // vignette edge
   const v = g.createRadialGradient(S / 2, S / 2, S * 0.45, S / 2, S / 2, S * 0.72)

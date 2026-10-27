@@ -28,7 +28,7 @@ export class Minimap {
     this.resize(1)
 
     game.events.on('weapon:fire', ({ shooter, suppressed }) => {
-      if (suppressed || shooter.isPlayer || shooter.team === game.player.team) return
+      if (suppressed || !game.mode.isEnemy(game.player, shooter)) return
       this.spotted.set(shooter.id, game.realTime + 1.6)
     })
     game.events.on('actor:killed', ({ victim }) => this.spotted.delete(victim.id))
@@ -86,7 +86,7 @@ export class Minimap {
     }
     const pt = { x: 0, y: 0 }
     const team = player.team
-    const uav = g.mode.isUavActive(team)
+    const uav = g.mode.isUavActiveFor(player)
     const now = g.realTime
 
     // UAV sweep
@@ -119,13 +119,16 @@ export class Minimap {
       ctx.stroke()
     }
 
+    // Objectives (under the actor blips)
+    this.drawObjectives(toScreen, pt)
+
     // Enemies
     for (const a of g.actors) {
-      if (!a.alive || a.team === team) continue
+      if (!a.alive || !g.mode.isEnemy(player, a)) continue
       let alpha = 0
       const until = this.spotted.get(a.id)
       if (until !== undefined && until > now) alpha = Math.min(1, (until - now) / 0.5)
-      if (uav) alpha = Math.max(alpha, 0.9)
+      if (g.mode.uavReveals(player, a)) alpha = Math.max(alpha, 0.9)
       if (alpha <= 0.01) continue
       toScreen(a.position.x, a.position.z, pt)
       if (pt.x < -6 || pt.y < -6 || pt.x > S + 6 || pt.y > S + 6) continue
@@ -140,13 +143,16 @@ export class Minimap {
       ctx.globalAlpha = 1
     }
 
-    // Friendlies
+    // Friendlies (none in FFA)
     for (const a of g.actors) {
-      if (!a.alive || a.team !== team || a.isPlayer) continue
+      if (!g.mode.isTeamMode || !a.alive || a.isPlayer || g.mode.isEnemy(player, a)) continue
       toScreen(a.position.x, a.position.z, pt)
       if (pt.x < -8 || pt.y < -8 || pt.x > S + 8 || pt.y > S + 8) continue
       this.arrow(pt.x, pt.y, yaw - a.yaw, 7.5, FRIEND)
     }
+
+    // Bomb carrier / dropped / planted bomb (S&D)
+    this.drawBomb(toScreen, pt)
 
     // Player
     this.arrow(S / 2, S / 2, 0, 9.5, '#ffffff')
@@ -176,6 +182,85 @@ export class Minimap {
       ctx.fillStyle = major ? '#ffffff' : 'rgba(255,255,255,.65)'
       ctx.fillText(label, x, y + 0.5)
     }
+  }
+
+  private drawObjectives(toScreen: (x: number, z: number, o: { x: number; y: number }) => void, pt: { x: number; y: number }) {
+    const g = this.game
+    const ctx = this.ctx
+    const mine = g.player.team
+    const pts: { id: string; x: number; z: number; color: string; pulse: boolean }[] = []
+    if (g.mode.id === 'dom') {
+      for (const o of g.mode.objectives) {
+        const color = o.owner === null ? '#e8e8e0' : o.owner === mine ? FRIEND : ENEMY
+        pts.push({ id: o.id, x: o.position.x, z: o.position.z, color, pulse: o.contested || o.capturingTeam !== null })
+      }
+    } else if (g.mode.id === 'sd') {
+      const b = g.mode.bomb
+      for (const site of g.mode.bombSites) {
+        const hot = !!b?.planted && b.site === site.id
+        pts.push({ id: site.id, x: site.position.x, z: site.position.z, color: hot ? ENEMY : '#ffd23a', pulse: hot })
+      }
+    }
+    if (!pts.length) return
+    const S = MINIMAP_SIZE
+    ctx.font = '800 13px "Saira Condensed", sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    for (const o of pts) {
+      toScreen(o.x, o.z, pt)
+      // Clamp to the radar edge so off-screen objectives stay visible.
+      const x = Math.min(S - 10, Math.max(10, pt.x))
+      const y = Math.min(S - 10, Math.max(10, pt.y))
+      const a = o.pulse ? 0.55 + 0.45 * Math.sin(this.game.realTime * 8) : 1
+      ctx.globalAlpha = a
+      ctx.fillStyle = 'rgba(8,10,6,.85)'
+      ctx.strokeStyle = o.color
+      ctx.lineWidth = 1.6
+      ctx.beginPath()
+      ctx.rect(x - 8, y - 8, 16, 16)
+      ctx.fill()
+      ctx.stroke()
+      ctx.fillStyle = o.color
+      ctx.fillText(o.id, x, y + 0.5)
+      ctx.globalAlpha = 1
+    }
+  }
+
+  private drawBomb(toScreen: (x: number, z: number, o: { x: number; y: number }) => void, pt: { x: number; y: number }) {
+    const g = this.game
+    const b = g.mode.bomb
+    if (g.mode.id !== 'sd' || !b) return
+    const attacking = b.attackers === g.player.team
+    let x: number
+    let z: number
+    if (b.planted) {
+      x = b.position.x
+      z = b.position.z
+    } else if (b.carrier ?? g.mode.actorById(b.carrierId)) {
+      const carrier = (b.carrier ?? g.mode.actorById(b.carrierId))!
+      // Only your own team sees who has the bomb.
+      if (g.mode.isEnemy(g.player, carrier) || carrier.isPlayer) return
+      x = carrier.position.x
+      z = carrier.position.z
+    } else {
+      if (!attacking) return
+      x = b.position.x
+      z = b.position.z
+    }
+    toScreen(x, z, pt)
+    const S = MINIMAP_SIZE
+    const cx = Math.min(S - 9, Math.max(9, pt.x))
+    const cy = Math.min(S - 9, Math.max(9, pt.y)) - (b.carrier && !b.planted ? 11 : 0)
+    const ctx = this.ctx
+    const blink = b.planted ? 0.5 + 0.5 * Math.sin(g.realTime * 10) : 1
+    ctx.globalAlpha = blink
+    ctx.fillStyle = 'rgba(0,0,0,.8)'
+    ctx.fillRect(cx - 8, cy - 5.5, 16, 11)
+    ctx.fillStyle = '#f2f2ea'
+    ctx.fillRect(cx - 7, cy - 4.5, 14, 9)
+    ctx.fillStyle = '#ff3a2a'
+    ctx.fillRect(cx - 5.5, cy - 3, 6, 4)
+    ctx.globalAlpha = 1
   }
 
   private arrow(x: number, y: number, rot: number, size: number, color: string) {

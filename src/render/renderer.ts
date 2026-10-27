@@ -31,6 +31,7 @@ import {
 } from 'postprocessing'
 import type { Environment, RenderContext } from '../core/types'
 import { applySkyUniforms, createSkyMaterial, createSkyMesh, installFogChunks, type SkyUniforms } from './sky'
+import { ContactAOEffect } from './ao'
 import { createBloodTexture, ScreenFXEffect } from './post'
 
 export interface ScreenEffects {
@@ -61,12 +62,14 @@ interface QualityPreset {
   grain: number
   ca: number
   blur: number
+  /** Depth-only contact AO pass. */
+  ao: boolean
 }
 
 const PRESETS: Record<Quality, QualityPreset> = {
-  low: { pixelRatio: 1, shadowSize: 1024, shadowRadius: 2.2, bloom: true, bloomLevels: 4, smaa: false, grain: 0, ca: 0, blur: 0.6 },
-  medium: { pixelRatio: 1.25, shadowSize: 2048, shadowRadius: 2.0, bloom: true, bloomLevels: 6, smaa: true, grain: 0.035, ca: 0.7, blur: 1 },
-  high: { pixelRatio: 1.75, shadowSize: 4096, shadowRadius: 1.8, bloom: true, bloomLevels: 8, smaa: true, grain: 0.045, ca: 1, blur: 1 },
+  low: { pixelRatio: 1, shadowSize: 1024, shadowRadius: 2.2, bloom: true, bloomLevels: 4, smaa: false, grain: 0, ca: 0, blur: 0.6, ao: false },
+  medium: { pixelRatio: 1.25, shadowSize: 2048, shadowRadius: 2.0, bloom: true, bloomLevels: 6, smaa: true, grain: 0.035, ca: 0.7, blur: 1, ao: true },
+  high: { pixelRatio: 1.75, shadowSize: 4096, shadowRadius: 1.8, bloom: true, bloomLevels: 8, smaa: true, grain: 0.045, ca: 1, blur: 1, ao: true },
 }
 
 const DEFAULT_ENV: Environment = {
@@ -125,6 +128,8 @@ export class GameRenderer implements RenderContext {
 
   private readonly worldPass: RenderPass
   private readonly vmPass: RenderPass
+  private readonly ao: ContactAOEffect
+  private readonly aoPass: EffectPass
   private readonly bloomPass: EffectPass
   private readonly bloom: BloomEffect
   private readonly fxPass: EffectPass
@@ -219,7 +224,11 @@ export class GameRenderer implements RenderContext {
     ;(smaa as unknown as { attributes: number }).attributes = EffectAttribute.CONVOLUTION
     this.smaaPass = new EffectPass(this.camera, smaa)
 
+    // AO sits between world and viewmodel so the first-person weapon never gets world occlusion.
+    this.ao = new ContactAOEffect(this.camera)
+    this.aoPass = new EffectPass(this.camera, this.ao)
     this.composer.addPass(this.worldPass)
+    this.composer.addPass(this.aoPass)
     this.composer.addPass(this.vmPass)
     this.composer.addPass(this.bloomPass)
     this.composer.addPass(this.fxPass)
@@ -358,6 +367,7 @@ export class GameRenderer implements RenderContext {
     sh.radius = p.shadowRadius
     this.bloom.mipmapBlurPass.levels = p.bloomLevels
     this.bloomPass.enabled = p.bloom
+    this.aoPass.enabled = p.ao
     this.fx.set('uGrain', p.grain)
     this.fx.set('uCA', p.ca)
     this.fx.set('uBlurMax', p.blur)
@@ -467,6 +477,7 @@ export class GameRenderer implements RenderContext {
       fx.shake = 0
     }
 
+    if (this.aoPass.enabled) this.ao.sync()
     this.composer.render(dt)
 
     if (shaken) {

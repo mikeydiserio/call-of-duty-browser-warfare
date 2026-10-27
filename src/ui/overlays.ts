@@ -1,9 +1,9 @@
-import type { Team } from '../core/types'
-import { CONFIG } from '../core/config'
+import type { Actor, Team } from '../core/types'
 import type { Game } from '../core/game'
 import { levelForXp, loadXp, rankName, saveXp, xpForLevel, RANK_NAMES } from './data'
 import { clamp, el, setClass, Txt } from './dom'
 import { emblemSvg, rankSvg, WORDMARK } from './icons'
+import { ffaStandings, ffaWinner, MODE_SHORT, modeObjective, ordinal } from './modes'
 import { MenuList, type UiCtx } from './screen'
 import { Scoreboard } from './scoreboard'
 
@@ -59,19 +59,21 @@ export class LoadingScreen {
   private loc: HTMLElement
   private fading = false
   private tipIdx = 0
+  private modeEl!: HTMLElement
+  private objEl!: HTMLElement
+  private teamsEl!: HTMLElement
 
   constructor(private game: Game) {
     const bg = el('div', 'ld-bg', this.el)
     el('div', 'ld-vig', bg)
     const left = el('div', 'ld-left', this.el)
-    el('div', 'ld-mode', left, 'TEAM DEATHMATCH')
+    this.modeEl = el('div', 'ld-mode', left)
     this.name = el('div', 'ld-name', left)
     this.loc = el('div', 'ld-loc', left)
     el('div', 'ld-rule', left)
     el('div', 'ld-objhead', left, 'OBJECTIVES')
-    el('p', 'ld-obj', left, `Eliminate enemy combatants. The first team to ${CONFIG.scoreLimit} kills, or the team with the highest score when time expires, wins the match.`)
-    const teams = el('div', 'ld-teams', left)
-    teams.innerHTML = `<div class="ldt">${emblemSvg('tf141')}<span>TASK FORCE 141</span></div><div class="ldt-vs">VS</div><div class="ldt r"><span>OPFOR</span>${emblemSvg('opfor')}</div>`
+    this.objEl = el('p', 'ld-obj', left)
+    this.teamsEl = el('div', 'ld-teams', left)
 
     const right = el('div', 'ld-right', this.el)
     const frame = el('div', 'map-frame', right)
@@ -91,6 +93,12 @@ export class LoadingScreen {
     const g = this.game
     this.name.textContent = g.map.displayName.toUpperCase()
     this.loc.textContent = g.map.location.toUpperCase()
+    this.modeEl.textContent = MODE_SHORT[g.match.mode]
+    this.objEl.textContent = modeObjective(g.match)
+    this.teamsEl.innerHTML =
+      g.match.mode === 'ffa'
+        ? `<div class="ldt ffa"><span>FREE-FOR-ALL</span><em>${g.match.botCount + 1} PLAYERS</em></div>`
+        : `<div class="ldt">${emblemSvg('tf141')}<span>TASK FORCE 141</span></div><div class="ldt-vs">VS</div><div class="ldt r"><span>OPFOR</span>${emblemSvg('opfor')}</div>`
     this.tipIdx = (this.tipIdx + 1) % TIPS.length
     this.tip.innerHTML = `<b>TIP</b> ${TIPS[this.tipIdx]}`
     const ctx = this.canvas.getContext('2d')
@@ -152,15 +160,24 @@ export class IntroOverlay {
   private label: HTMLElement
   private txt: Txt
   constructor(private ctx: UiCtx) {
-    el('div', 'in-mode', this.el, 'TEAM DEATHMATCH')
+    el('div', 'in-mode', this.el)
     this.label = el('div', 'in-label', this.el, 'MATCH BEGINS IN')
     this.num = el('div', 'in-num', this.el)
     this.txt = new Txt(this.num)
-    const teams = el('div', 'in-teams', this.el)
-    teams.innerHTML = `<div class="int"><div class="em">${emblemSvg('tf141')}</div><div class="nm">TASK FORCE 141</div></div><div class="in-vs">VS</div><div class="int r"><div class="em">${emblemSvg('opfor')}</div><div class="nm">OPFOR</div></div>`
+    this.teams = el('div', 'in-teams', this.el)
   }
 
+  private teams: HTMLElement
+
   show() {
+    const g = this.ctx.game
+    const sd = g.match.mode === 'sd'
+    const attack = g.mode.bomb ? g.mode.bomb.attackers === g.player.team : false
+    this.teams.innerHTML =
+      g.match.mode === 'ffa'
+        ? `<div class="int ffa"><div class="nm">FREE-FOR-ALL</div><div class="sb">Every man for himself</div></div>`
+        : `<div class="int"><div class="em">${emblemSvg('tf141')}</div><div class="nm">TASK FORCE 141</div>${sd ? `<div class="sb">${attack ? 'ATTACKING' : 'DEFENDING'}</div>` : ''}</div><div class="in-vs">VS</div><div class="int r"><div class="em">${emblemSvg('opfor')}</div><div class="nm">OPFOR</div>${sd ? `<div class="sb">${attack ? 'DEFENDING' : 'ATTACKING'}</div>` : ''}</div>`
+    this.label.textContent = sd && g.mode.round > 1 ? `ROUND ${g.mode.round} BEGINS IN` : 'MATCH BEGINS IN'
     this.el.classList.add('on')
     this.lastN = -1
   }
@@ -196,6 +213,8 @@ export class ResultsOverlay {
   private splashWord = el('div', 'rs-word', this.splash)
   private splashScore = el('div', 'rs-score', this.splash)
   private splashEmblem = el('div', 'rs-emblem', this.splash)
+  private splashPodium = el('div', 'rs-podium big', this.splash)
+  private podium: HTMLElement
   private page = el('div', 'rs-page', this.el)
   private title: HTMLElement
   private stats: HTMLElement
@@ -212,11 +231,12 @@ export class ResultsOverlay {
   constructor(private ctx: UiCtx) {
     const head = el('div', 'rs-head', this.page)
     this.title = el('div', 'menu-header', head)
-    el('div', 'menu-sub', head, 'MATCH COMPLETE')
+    this.sub = el('div', 'menu-sub', head, 'MATCH COMPLETE')
     el('div', 'menu-header-line', head)
 
     const body = el('div', 'rs-body', this.page)
     const me = el('div', 'rs-me panel', body)
+    this.podium = el('div', 'rs-podium', me)
     el('div', 'panel-title', me, 'YOUR PERFORMANCE')
     this.stats = el('div', 'rs-stats', me)
     const prog = el('div', 'rs-prog', me)
@@ -234,7 +254,15 @@ export class ResultsOverlay {
     this.list = new MenuList(
       ctx,
       [
-        { label: 'PLAY AGAIN', action: () => ctx.play() },
+        {
+          label: 'PLAY AGAIN',
+          action: () => {
+            const g = ctx.game
+            ctx.play(g.lobby.lobby ? () => g.lobby.startMatch() : () => g.startMatch(g.loadout, g.match))
+          },
+          disabled: () => ctx.game.lobby.lobby !== null && ctx.game.lobby.role === 'client',
+          tip: 'Waiting for the host to start the next match.',
+        },
         { label: 'MAIN MENU', action: () => ctx.quit() },
       ],
       66,
@@ -246,12 +274,31 @@ export class ResultsOverlay {
   show(winner: Team | 'draw' | undefined) {
     const g = this.ctx.game
     const mine = g.player.team
-    const result = winner === 'draw' || !winner ? 'draw' : winner === mine ? 'win' : 'loss'
-    this.el.className = `results on ${result}`
+    const theirs: Team = mine === 'tf141' ? 'opfor' : 'tf141'
+    const ffa = g.mode.id === 'ffa'
+    let result: 'win' | 'loss' | 'draw'
+    if (ffa) {
+      const standings = ffaStandings(g)
+      const place = standings.indexOf(g.player) + 1
+      result = ffaWinner(g) === g.player ? 'win' : 'loss'
+      this.splashScore.textContent = `YOU PLACED ${ordinal(place).toUpperCase()}  ·  ${g.player.stats.kills} KILLS`
+      this.splashEmblem.innerHTML = ''
+      this.renderPodium(this.splashPodium, standings)
+      this.renderPodium(this.podium, standings)
+    } else {
+      result = winner === 'draw' || !winner ? 'draw' : winner === mine ? 'win' : 'loss'
+      this.splashEmblem.innerHTML = emblemSvg(result === 'loss' ? theirs : mine)
+      const sc = `${g.mode.score[mine]}  —  ${g.mode.score[theirs]}`
+      this.splashScore.textContent = g.mode.id === 'sd' ? `ROUNDS  ${sc}` : sc
+      this.splashPodium.textContent = ''
+      this.podium.textContent = ''
+    }
+    this.el.className = `results on ${result}${ffa ? ' ffa' : ''}`
     this.splashWord.textContent = result === 'win' ? 'VICTORY' : result === 'loss' ? 'DEFEAT' : 'DRAW'
-    this.splashEmblem.innerHTML = emblemSvg(result === 'loss' ? (mine === 'tf141' ? 'opfor' : 'tf141') : mine)
-    this.splashScore.textContent = `${g.mode.score.tf141}  —  ${g.mode.score.opfor}`
-    this.title.textContent = result === 'win' ? 'VICTORY' : result === 'loss' ? 'DEFEAT' : 'DRAW'
+    this.title.textContent = `${result === 'win' ? 'VICTORY' : result === 'loss' ? 'DEFEAT' : 'DRAW'}`
+    this.sub.textContent = `${MODE_SHORT[g.mode.id]}  //  MATCH COMPLETE`
+    this.list.setLabel(1, g.lobby.lobby ? 'RETURN TO LOBBY' : 'MAIN MENU')
+    this.list.refresh()
     this.t = 0
     this.pageShown = false
     this.active = true
@@ -297,6 +344,17 @@ export class ResultsOverlay {
   }
 
   private pendingRankUp = false
+  private sub!: HTMLElement
+
+  private renderPodium(box: HTMLElement, standings: Actor[]) {
+    box.textContent = ''
+    standings.slice(0, 3).forEach((a, i) => {
+      const r = el('div', `pod p${i + 1}${a.isPlayer ? ' you' : ''}`, box)
+      el('span', 'pl', r, ordinal(i + 1).toUpperCase())
+      el('span', 'nm', r, a.name)
+      el('span', 'k', r, `${a.stats.kills} KILLS`)
+    })
+  }
 
   hide() {
     this.active = false
@@ -326,5 +384,63 @@ export class ResultsOverlay {
       return
     }
     this.list.key(e)
+  }
+}
+
+// ─── Modal message box (network errors, host left, ...) ────────────────────
+
+export class Popup {
+  readonly el = el('section', 'popup')
+  private titleEl: HTMLElement
+  private msgEl: HTMLElement
+  private queue: [string, string][] = []
+  active = false
+
+  constructor(private ctx: UiCtx) {
+    const box = el('div', 'pp-box panel', this.el)
+    this.titleEl = el('div', 'pp-title', box)
+    this.msgEl = el('p', 'pp-msg', box)
+    const ok = el('button', 'pp-ok', box, 'OK')
+    ok.type = 'button'
+    ok.addEventListener('click', () => this.dismiss())
+  }
+
+  show(title: string, message: string) {
+    if (this.active) {
+      this.queue.push([title, message])
+      return
+    }
+    this.titleEl.textContent = title
+    this.msgEl.textContent = message
+    this.active = true
+    this.el.classList.add('on')
+    this.ctx.sfx('back')
+  }
+
+  dismiss() {
+    this.ctx.sfx('select')
+    this.active = false
+    this.el.classList.remove('on')
+    const next = this.queue.shift()
+    if (next) this.show(next[0], next[1])
+  }
+
+  key(e: KeyboardEvent) {
+    if (e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape') this.dismiss()
+  }
+}
+
+// ─── Toasts (network status) ───────────────────────────────────────────────
+
+export class Toasts {
+  readonly el = el('section', 'toasts')
+
+  show(text: string, cls: 'ok' | 'bad' = 'bad') {
+    const t = el('div', `toast ${cls}`, this.el)
+    el('b', '', t, cls === 'ok' ? 'NETWORK' : 'CONNECTION')
+    el('span', '', t, text)
+    window.setTimeout(() => t.classList.add('out'), 5200)
+    window.setTimeout(() => t.remove(), 5800)
+    while (this.el.childElementCount > 4) this.el.firstElementChild?.remove()
   }
 }
