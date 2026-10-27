@@ -56,6 +56,8 @@ export class NavGraph {
   highMask: Uint8Array
   /** 1 = only crouch fits here. */
   low: Uint8Array
+  /** 1 = reachable from everywhere (valid destination); 0 = exit-only node. */
+  goalOk: Uint8Array
   linkStart: Int32Array
   linkTo: Int32Array
   linkType: Uint8Array
@@ -81,12 +83,14 @@ export class NavGraph {
   private heap!: Int32Array
   private heapPos!: Int32Array
   private search = 1
+  /** Learned extra cost (metres) for nodes bots got stuck on this match. */
+  penalty: Float32Array = new Float32Array(0)
   /** Extra per-node cost multiplier hook (danger avoidance). */
   extraCost: ((node: number) => number) | null = null
 
   constructor() {
     this.px = this.py = this.pz = this.cover = new Float32Array(0)
-    this.coverMask = this.highMask = this.low = this.linkType = new Uint8Array(0)
+    this.coverMask = this.highMask = this.low = this.goalOk = this.linkType = new Uint8Array(0)
     this.linkStart = this.linkTo = new Int32Array(0)
     this.linkLadder = new Int16Array(0)
   }
@@ -283,6 +287,7 @@ export class NavGraph {
     // reach every other (one-way drops can otherwise strand bots and fail A*).
     const radj = this.reverse(adj, n0)
     let bestKeep: Uint8Array | null = null
+    let bestExit: Uint8Array | null = null
     let bestCount = -1
     const tried = new Set<number>()
     for (const seed of seeds) {
@@ -296,15 +301,20 @@ export class NavGraph {
       if (c > bestCount) {
         bestCount = c
         bestKeep = kk
+        bestExit = bwd
       }
       if (c > n0 * 0.6) break
     }
     let n = 0
     const remap = new Int32Array(n0).fill(-1)
+    // Also keep "exit" nodes (roofs, ledges reachable only by spawning/dropping
+    // there) that can reach the component: valid path starts, never goals.
+    const goalOk0 = new Uint8Array(n0)
     for (let k = 0; k < n0; k++) {
-      if (bestKeep && bestKeep[k]) {
+      if (bestExit && bestExit[k]) {
         keep[k] = 1
         remap[k] = n++
+        goalOk0[k] = bestKeep![k]!
       }
     }
 
@@ -317,6 +327,7 @@ export class NavGraph {
     this.coverMask = new Uint8Array(n)
     this.highMask = new Uint8Array(n)
     this.low = new Uint8Array(n)
+    this.goalOk = new Uint8Array(n)
     this.linkStart = new Int32Array(n + 1)
     let links = 0
     for (let k = 0; k < n0; k++) {
@@ -336,6 +347,7 @@ export class NavGraph {
       this.py[id] = cy[k]!
       this.pz[id] = cz[k]!
       this.low[id] = clow[k]!
+      this.goalOk[id] = goalOk0[k]!
       nodeCol[id] = ccol[k]!
       this.linkStart[id] = li
       const a = adj[k]!
@@ -523,7 +535,7 @@ export class NavGraph {
     const step = n / samples
     for (let s = 0; s < samples; s++) {
       const k = Math.floor(s * step)
-      if (this.low[k]) continue
+      if (this.low[k] || !this.goalOk[k]) continue
       _o.set(this.px[k]!, this.py[k]! + 1.5, this.pz[k]!)
       let open = 0
       for (let d = 0; d < 8; d++) {
@@ -555,12 +567,23 @@ export class NavGraph {
     this.closed = new Uint32Array(n)
     this.heap = new Int32Array(n)
     this.heapPos = new Int32Array(n)
+    this.penalty = new Float32Array(n)
+  }
+
+  /** Discourage paths through a node (bots got stuck there). Capped. */
+  penalize(node: number, cost: number) {
+    if (node >= 0 && node < this.count) this.penalty[node] = Math.min(200, this.penalty[node]! + cost)
+  }
+
+  /** Forget learned penalties (new match). */
+  resetPenalties() {
+    this.penalty.fill(0)
   }
 
   // ─── Queries ──────────────────────────────────────────────────────────────
 
   /** Nearest node to a world point (vertical distance weighted), or -1. */
-  nearest(x: number, y: number, z: number, maxD = 4): number {
+  nearest(x: number, y: number, z: number, maxD = 4, forGoal = false): number {
     const W = this.gridW
     const H = this.gridH
     const ci = Math.round((x - this.minX) / CELL)
@@ -576,6 +599,7 @@ export class NavGraph {
           const c = j * W + i
           for (let q = this.colStart[c]!; q < this.colStart[c + 1]!; q++) {
             const k = this.colNodes[q]!
+            if (forGoal && !this.goalOk[k]) continue
             const dx = this.px[k]! - x
             let dy = this.py[k]! - y
             dy = dy > 0 ? dy * 3 : -dy * 1.5 // prefer the floor we're standing on
@@ -595,7 +619,11 @@ export class NavGraph {
   }
 
   randomNode(): number {
-    return this.count ? Math.floor(Math.random() * this.count) : -1
+    for (let t = 0; t < 20 && this.count; t++) {
+      const k = Math.floor(Math.random() * this.count)
+      if (this.goalOk[k]) return k
+    }
+    return -1
   }
 
   /** Random node whose column lies within radius of (x, z) — any floor level. */
@@ -610,9 +638,12 @@ export class NavGraph {
       if (i < 0 || j < 0 || i >= W || j >= H) continue
       const c = j * W + i
       const n = this.colStart[c + 1]! - this.colStart[c]!
-      if (n > 0) return this.colNodes[this.colStart[c]! + Math.floor(Math.random() * n)]!
+      if (n > 0) {
+        const k = this.colNodes[this.colStart[c]! + Math.floor(Math.random() * n)]!
+        if (this.goalOk[k]) return k
+      }
     }
-    return this.nearest(x, 0, z, radius + 4)
+    return this.nearest(x, 0, z, radius + 4, true)
   }
 
   linkBetween(a: number, b: number): number {
@@ -700,6 +731,7 @@ export class NavGraph {
         else if (t === LINK_DROP) cost += 0.6
         else if (t === LINK_LADDER) cost += 2
         if (this.low[m]) cost *= 1.6
+        cost += this.penalty[m]!
         if (extra) cost *= extra(m)
         const ng = g[cur]! + cost
         if (stamp[m] === s && ng >= g[m]!) continue
