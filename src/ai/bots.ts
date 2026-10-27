@@ -2,7 +2,7 @@ import { Vector3 } from 'three'
 import type { Game } from '../core/game'
 import type { Actor, MatchSettings, ObjectiveId, ObjectivePoint, Team, WeaponId } from '../core/types'
 import { otherTeam } from '../core/types'
-import { Bot, type BotProfile, type BotSquad } from './bot'
+import { Bot, type BotProfile, type BotRole, type BotSquad } from './bot'
 import { getNavGraph, type NavGraph } from './nav'
 import { generateNames } from './names'
 
@@ -28,6 +28,17 @@ export class BotManager implements BotSquad {
   private seed = (Math.random() * 1e9) | 0
   private sdRound = -1
   private sdSite: ObjectiveId = 'A'
+  private roleT = 0
+  private domNear: Partial<Record<Team, ObjectiveId>> = {}
+  /** Debug: role assignments and objective attempts (read from devtools / headless runs). */
+  debugStats = {
+    roles: {} as Record<string, BotRole>,
+    roleCounts: {} as Record<string, number>,
+    plantAttempts: 0,
+    plantStarts: 0,
+    defuseAttempts: 0,
+    defuseStarts: 0,
+  }
 
   constructor(private game: Game) {
     const ev = game.events
@@ -66,6 +77,10 @@ export class BotManager implements BotSquad {
   createForMatch(match: MatchSettings, playerTeam: Team): Actor[] {
     this.clear()
     this.difficulty = match.botDifficulty
+    this.domNear = {}
+    this.sdRound = -1
+    this.roleT = 0
+    this.debugStats = { roles: {}, roleCounts: {}, plantAttempts: 0, plantStarts: 0, defuseAttempts: 0, defuseStarts: 0 }
     this.nav = getNavGraph(this.game)
     this.nav.resetPenalties()
     const s = this.nav.stats
@@ -118,6 +133,104 @@ export class BotManager implements BotSquad {
 
   // ─── Squad coordination (BotSquad) ────────────────────────────────────────
 
+  stat(name: string) {
+    const d = this.debugStats as unknown as Record<string, number>
+    d[name] = (d[name] ?? 0) + 1
+  }
+
+  domMidFlag(): ObjectiveId | null {
+    const flags = this.game.mode.objectives
+    if (flags.find((f) => f.id === 'B')) return 'B'
+    return flags[1]?.id ?? flags[0]?.id ?? null
+  }
+
+  domNearFlag(team: Team): ObjectiveId | null {
+    const cached = this.domNear[team]
+    if (cached) return cached
+    const flags = this.game.mode.objectives
+    const mid = this.domMidFlag()
+    // Side flag closest to where the team currently is (fixed for the match once computed).
+    let sx = 0, sz = 0, n = 0
+    for (const b of this.list) {
+      if (b.team !== team || !b.alive) continue
+      sx += b.position.x
+      sz += b.position.z
+      n++
+    }
+    if (!n) return null
+    let best: ObjectiveId | null = null
+    let bd = Infinity
+    for (const f of flags) {
+      if (f.id === mid && flags.length > 2) continue
+      const d = Math.hypot(f.position.x - sx / n, f.position.z - sz / n)
+      if (d < bd) {
+        bd = d
+        best = f.id
+      }
+    }
+    if (best) this.domNear[team] = best
+    return best
+  }
+
+  /** Objective roles: Domination rush/flex split; S&D carrier/escorts/entry/fetch and defenders. */
+  private assignRoles() {
+    const mode = this.game.mode
+    const set = (b: Bot, r: BotRole) => {
+      b.role = r
+    }
+    if (mode.id === 'dom' && mode.objectives.length) {
+      for (const team of ['tf141', 'opfor'] as Team[]) {
+        const squad = this.list.filter((b) => b.team === team)
+        if (!squad.length) continue
+        // Stable for the match: only bots without a role get one.
+        if (squad.every((b) => b.role === 'rushNear' || b.role === 'rushMid' || b.role === 'flex')) continue
+        const near = mode.objectives.find((f) => f.id === this.domNearFlag(team))
+        const mid = mode.objectives.find((f) => f.id === this.domMidFlag())
+        const pool = squad.slice()
+        const take = (f: typeof near, r: BotRole, k: number) => {
+          if (!f) return
+          pool.sort((a, b) => a.position.distanceToSquared(f.position) - b.position.distanceToSquared(f.position))
+          for (const b of pool.splice(0, Math.min(k, pool.length))) set(b, r)
+        }
+        take(near, 'rushNear', 2)
+        take(mid, 'rushMid', 2)
+        for (const b of pool) set(b, 'flex')
+      }
+    } else if (mode.id === 'sd' && mode.bomb) {
+      const bomb = mode.bomb
+      for (const team of ['tf141', 'opfor'] as Team[]) {
+        const squad = this.list.filter((b) => b.team === team && b.alive)
+        if (team === bomb.attackers) {
+          const carrier = bomb.carrier
+          let fetcher: Bot | null = null
+          if (!carrier && !bomb.planted) fetcher = this.closestOfTeam(team, bomb.position)
+          const others = squad.filter((b) => b !== carrier && b !== fetcher)
+          if (carrier) others.sort((a, b) => a.position.distanceToSquared(carrier.position) - b.position.distanceToSquared(carrier.position))
+          for (const b of squad) set(b, b === carrier ? 'carrier' : b === fetcher ? 'fetch' : 'entry')
+          if (carrier) for (const b of others.slice(0, 2)) set(b, 'escort')
+        } else {
+          // Split across the sites (stable by id); the closest one defuses a planted bomb.
+          squad.sort((a, b) => a.id - b.id)
+          squad.forEach((b, i) => set(b, i % 2 === 0 ? 'defA' : 'defB'))
+          if (bomb.planted) {
+            const d = this.closestOfTeam(team, bomb.position)
+            if (d) set(d, 'defuse')
+          }
+        }
+      }
+    } else {
+      for (const b of this.list) b.role = 'none'
+    }
+    const roles: Record<string, BotRole> = {}
+    const counts: Record<string, number> = {}
+    for (const b of this.list) {
+      roles[b.name] = b.role
+      counts[b.team[0] + ':' + b.role] = (counts[b.team[0] + ':' + b.role] ?? 0) + 1
+    }
+    this.debugStats.roles = roles
+    this.debugStats.roleCounts = counts
+  }
+
   objectiveLoad(team: Team, id: ObjectiveId, self: Bot): number {
     let n = 0
     for (const b of this.list) if (b !== self && b.alive && b.team === team && b.objId === id) n++
@@ -158,6 +271,12 @@ export class BotManager implements BotSquad {
       const d = _to.length()
       const onScreen = d < 3 || _to.dot(_fwd) > cosHalf * d
       b.update(dt, !onScreen ? 2 : d > 40 ? 1 : 0)
+    }
+    // Objective roles (cheap; twice a second).
+    this.roleT -= dt
+    if (this.roleT <= 0) {
+      this.roleT = 0.5
+      this.assignRoles()
     }
     // UAV sweeps reveal enemies to the owning team.
     this.uavT -= dt
