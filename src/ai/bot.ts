@@ -2,7 +2,7 @@ import { type Material, type MeshStandardMaterial, type Object3D, type SkinnedMe
 import { CONFIG } from '../core/config'
 import type { Game } from '../core/game'
 import { clamp, DEG, damp, directionFromYawPitch, lerp, wrapAngle, yawFromDirection } from '../core/math'
-import type { Actor, ActorHit, ActorStats, DamageInfo, Ladder, ObjectiveId, ObjectivePoint, Team, WeaponDef, WeaponId } from '../core/types'
+import type { Actor, ActorHit, ActorStats, DamageInfo, Ladder, ObjectiveId, ObjectivePoint, ObjectiveState, Team, WeaponDef, WeaponId } from '../core/types'
 import { WEAPONS } from '../weapons/defs'
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { createWorldWeaponModel } from '../weapons/world-models'
@@ -77,8 +77,16 @@ const _up = new Vector3()
 
 let nextId = 1
 
+/** Objective-mode roles (Domination rushes/flex; S&D carrier, escort, entry, fetch, defenders). */
+export type BotRole = 'none' | 'rushNear' | 'rushMid' | 'flex' | 'carrier' | 'escort' | 'entry' | 'fetch' | 'defA' | 'defB' | 'defuse'
+
 /** What a bot needs from its manager for team coordination. */
 export interface BotSquad {
+  /** Domination: the flag nearest a team's side, and the middle flag. */
+  domNearFlag(team: Team): ObjectiveId | null
+  domMidFlag(): ObjectiveId | null
+  /** Debug counters (plant/defuse attempts…). */
+  stat(name: string): void
   /** Teammates (excluding `self`) currently assigned to objective `id`. */
   objectiveLoad(team: Team, id: ObjectiveId, self: Bot): number
   /** Site the attackers go for this round. */
@@ -153,6 +161,13 @@ export class Bot implements Actor {
   private fleeUntil = 0
   /** Objective modes: assigned flag/site id, re-evaluation timer, hold state. */
   objId: ObjectiveId | null = null
+  /** Objective-mode role, assigned by the manager. */
+  role: BotRole = 'none'
+  private objActive = false
+  private readonly objPos = new Vector3()
+  private objR = 0
+  private objHoldIn = false
+  private objDirect = false
   private objT = 0
   private objHold = false
   private objAction: 'plant' | 'defuse' | null = null
@@ -202,6 +217,7 @@ export class Bot implements Actor {
   private readonly grenadeAt = new Vector3()
 
   private turning = false
+  private noSmoothT = 0
   private corpses: { mesh: SkinnedMesh; mat: MeshStandardMaterial; t: number; gun: Object3D | null }[] = []
   private airStuckT = 0
   private readonly baseMat: Material
@@ -377,6 +393,7 @@ export class Bot implements Actor {
     this.objT = 0
     this.objHold = false
     this.objAction = null
+    this.objActive = false
     this.pathLen = 0
     this.goalT = 0
     this.thinkT = 0.1 + Math.random() * 0.3
@@ -646,26 +663,33 @@ export class Bot implements Actor {
 
     const hurt = this.health < 48
     if (now < this.fleeUntil) return
+    const objectiveMode = this.game.mode.id === 'dom' || this.game.mode.id === 'sd'
     if (this.target) {
-      if (this.objAction) this.cancelObjAction()
+      // Planting/defusing: only abort for a close threat or when getting hit.
+      if (this.objAction) {
+        if (this.target.position.distanceTo(this.position) < 14 || this.timeSinceDamage < 0.8) this.cancelObjAction()
+        else return
+      }
       this.threatPos.copy(this.target.position)
-      // Hurt and outgunned: break contact toward cover.
-      if (hurt && this.mode !== 'retreat' && Math.random() < 0.35 * (1.2 - this.aggression) && this.aimTime > 0.8) {
+      // Hurt and outgunned: break contact toward cover (rarely while holding an objective).
+      const holding = objectiveMode && this.objActive && this.objHoldIn && this.insideObjective()
+      if (hurt && !holding && this.mode !== 'retreat' && Math.random() < 0.35 * (1.2 - this.aggression) * (objectiveMode ? 0.35 : 1) && this.aimTime > 0.8) {
         this.beginRetreat()
         return
       }
       if (this.mode === 'retreat' && now < this.retreatUntil && hurt) return
+      const anchored = objectiveMode && this.thinkObjective(now)
       this.mode = 'engage'
       this.thinkEngage()
+      if (anchored) {
+        // Fight from / on the way to the objective instead of chasing the kill.
+        this.advance = this.insideObjective(0.9) && this.objHoldIn ? 0 : this.insideObjective() ? Math.min(this.advance, 0) : 1
+      }
       return
     }
 
-    // Planting/defusing: keep at it unless someone is in our face.
-    if (this.objAction) {
-      if (this.target) this.cancelObjAction()
-      else return
-    }
-    if (this.thinkObjective(now)) return
+    if (this.objAction) return
+    if (objectiveMode && this.thinkObjective(now)) return
 
     // Lost contact: chase the freshest memory.
     let fresh: Memory | null = null
@@ -776,7 +800,7 @@ export class Bot implements Actor {
     // Swap back when safe-ish/far.
     if (this.slot === 'secondary' && d > 18 && this.action === 'none' && this.ammo.primary.mag + this.ammo.primary.reserve > 0) this.startSwitch()
     // Advance toward the target along the nav graph when far.
-    if (this.advance > 0 && (!this.hasGoal || this.goal.distanceToSquared(t.position) > 25)) this.setGoal(t.position, false)
+    if (this.advance > 0 && !this.objActive && (!this.hasGoal || this.goal.distanceToSquared(t.position) > 25)) this.setGoal(t.position, false)
   }
 
   private beginRetreat() {
@@ -865,24 +889,49 @@ export class Bot implements Actor {
   }
 
   // ─── Objectives ───────────────────────────────────────────────────────────
+  //
+  // Objective modes give every bot a role (assigned by the manager) that maps to
+  // an objective point. The point is an anchor: it survives firefights (the bot
+  // fights from/toward it instead of chasing kills), and "must-enter" anchors
+  // (flags being taken, bomb sites, the bomb) are walked into directly.
 
   private cancelObjAction() {
     this.game.mode.cancel(this)
     this.objAction = null
   }
 
-  /** Domination / S&D goal selection. Returns true when it set the bot's goal. */
-  private thinkObjective(now: number): boolean {
-    const mode = this.game.mode
-    if (mode.id === 'dom') return this.thinkDom(now)
-    if (mode.id === 'sd') return this.thinkSD(now)
-    return false
+  /** True while inside the active objective area (horizontal radius, rules' vertical tolerance). */
+  private insideObjective(scale = 1): boolean {
+    const p = this.objPos
+    return Math.hypot(p.x - this.position.x, p.z - this.position.z) < this.objR * scale && Math.abs(p.y - this.position.y) < 3
   }
 
-  private flags(): ({ owner: Team | null; capturingTeam: Team | null; contested: boolean } & ObjectivePoint)[] {
-    const live = this.game.mode.objectives
-    if (live.length) return live
-    return this.game.map.domFlags.map((f) => ({ ...f, owner: null, capturingTeam: null, contested: false }))
+  private setObjective(p: Vector3, r: number, hold: boolean, direct: boolean) {
+    if (!this.objActive || this.objPos.distanceToSquared(p) > 1) this.objHold = false
+    this.objActive = true
+    this.objPos.copy(p)
+    this.objR = r
+    this.objHoldIn = hold
+    this.objDirect = direct
+  }
+
+  /**
+   * Domination / S&D: choose the role's objective and keep the bot's nav goal on
+   * it. Returns true when an objective is active (it then owns movement).
+   */
+  private thinkObjective(now: number): boolean {
+    const mode = this.game.mode
+    this.objActive = false
+    if (mode.id === 'dom') this.thinkDom(now)
+    else if (mode.id === 'sd') this.thinkSD(now)
+    if (!this.objActive) return false
+    if (!this.target) this.mode = 'objective'
+    this.goObjective()
+    return true
+  }
+
+  private flags(): ObjectiveState[] {
+    return this.game.mode.objectives
   }
 
   private enemiesNear(p: Vector3, r: number, now: number): number {
@@ -894,168 +943,165 @@ export class Bot implements Actor {
     return n
   }
 
-  private thinkDom(now: number): boolean {
+  private thinkDom(now: number): void {
     const flags = this.flags()
-    if (flags.length === 0) return false
-    // A fresh, close enemy still gets chased (contest by fighting).
-    if (this.freshThreatWithin(now, 14)) return false
-    this.objT -= 0.3
-    let cur = flags.find((f) => f.id === this.objId)
-    if (!cur || this.objT <= 0 || (cur.owner === this.team && !cur.contested && Math.random() < 0.08)) {
-      let best: (typeof flags)[number] | null = null
-      let bestS = -Infinity
-      for (const f of flags) {
-        const d = Math.hypot(f.position.x - this.position.x, f.position.z - this.position.z)
-        const mine = f.owner === this.team
-        let s = -d * 0.09 + Math.random() * 1.5
-        if (!mine) s += f.owner === null ? 6.5 : 5
-        else {
-          s += 1
-          if (f.contested || (f.capturingTeam && f.capturingTeam !== this.team)) s += 9
-          s += this.enemiesNear(f.position, f.radius + 10, now) * 2.5
-        }
-        s -= this.mgr.objectiveLoad(this.team, f.id, this) * 2.4
-        if (s > bestS) {
-          bestS = s
-          best = f
-        }
-      }
-      if (best && best.id !== this.objId) {
-        this.objId = best.id
-        this.objHold = false
-      }
-      this.objT = 4 + Math.random() * 4
-      cur = best ?? undefined
+    if (flags.length === 0) return
+    const team = this.team
+    const takeable = (f: ObjectiveState) => f.owner !== team || f.contested || (f.capturingTeam !== null && f.capturingTeam !== team) || (f.progressTeam !== null && f.progressTeam !== team && f.progress > 0)
+    let f: ObjectiveState | undefined
+    if (this.role === 'rushNear') {
+      f = flags.find((x) => x.id === this.mgr.domNearFlag(team))
+      if (f && !takeable(f)) f = undefined
+    } else if (this.role === 'rushMid') {
+      f = flags.find((x) => x.id === this.mgr.domMidFlag())
+      if (f && !takeable(f)) f = undefined
     }
-    if (!cur) return false
-    this.mode = 'objective'
-    this.holdInside(cur.position, cur.radius, now)
-    return true
+    if (!f) {
+      // Flex: re-evaluate every few seconds by ownership, contests, threats, distance and squad load.
+      this.objT -= 0.3
+      const cur = flags.find((x) => x.id === this.objId)
+      if (cur && this.objT > 0 && !(cur.owner === team && !takeable(cur) && this.objT < 2)) f = cur
+      else {
+        let bestS = -Infinity
+        for (const x of flags) {
+          const d = Math.hypot(x.position.x - this.position.x, x.position.z - this.position.z)
+          let sc = -d * 0.07 + Math.random() * 1.2
+          const load = this.mgr.objectiveLoad(team, x.id, this)
+          if (x.owner !== team) {
+            // Attack together: a flag teammates are already pushing is more attractive (up to 3).
+            sc += (x.owner === null ? 7 : 6) + Math.min(load, 3) * 1.2
+          } else {
+            // Defend a flag being taken, but don't dog-pile it (attacks need to succeed).
+            sc += takeable(x) ? 7 - load * 2.5 : -4
+            sc += Math.min(2, this.enemiesNear(x.position, x.radius + 10, now)) * 1
+          }
+          if (sc > bestS) {
+            bestS = sc
+            f = x
+          }
+        }
+        this.objT = 3 + Math.random() * 2
+      }
+    }
+    if (!f) return
+    this.objId = f.id
+    // Take (or defend a contested) flag: get inside the circle and stay there.
+    const hold = takeable(f)
+    this.setObjective(f.position, f.radius, hold, hold)
   }
 
-  private thinkSD(now: number): boolean {
-    const bomb = this.game.mode.bomb
+  private thinkSD(now: number): void {
     const mode = this.game.mode
-    const sites = mode.bombSites.length ? mode.bombSites : this.game.map.bombSites
-    if (!bomb || sites.length === 0) return false
-    const attacker = this.team === bomb.attackers
-    if (attacker) {
+    const bomb = mode.bomb
+    const sites = mode.bombSites
+    if (!bomb || sites.length === 0) return
+    const site = sites.find((s2) => s2.id === this.mgr.attackSite(sites)) ?? sites[0]!
+    if (this.team === bomb.attackers) {
       if (bomb.planted) {
-        // Guard the planted bomb from cover.
-        if (this.freshThreatWithin(now, 25)) return false
-        this.mode = 'objective'
-        this.holdInside(bomb.position, 9, now)
-        return true
+        // Guard the planted bomb from cover around it.
+        this.setObjective(bomb.position, 9, true, false)
+        return
       }
       if (bomb.carrier === this) {
-        const site = sites.find((s2) => s2.id === this.mgr.attackSite(sites)) ?? sites[0]!
-        const d = Math.hypot(site.position.x - this.position.x, site.position.z - this.position.z)
-        this.mode = 'objective'
-        if (d < site.radius * 0.7 || (mode.wantsPlant(this) && d < site.radius * 0.9)) {
-          if (!this.objAction && mode.wantsPlant(this) && Math.hypot(this.velocity.x, this.velocity.z) < 0.3) {
-            if (mode.beginPlant(this)) this.objAction = 'plant'
-          }
+        // Plant: walk all the way into the site, stop, plant.
+        this.setObjective(site.position, site.radius * 0.75, true, true)
+        if (mode.wantsPlant(this) && !this.objAction) {
+          this.mgr.stat('plantAttempts')
           this.hasGoal = false
           this.pathLen = 0
-          return true
+          if (Math.hypot(this.velocity.x, this.velocity.z) < 1 && mode.beginPlant(this)) {
+            this.objAction = 'plant'
+            this.mgr.stat('plantStarts')
+          }
         }
-        if (!this.hasGoal || this.goal.distanceToSquared(site.position) > 4) this.setGoal(site.position, false)
-        return true
+        return
       }
-      if (!bomb.carrier) {
-        // Nearest attacker fetches a dropped bomb.
-        if (this.mgr.closestOfTeam(this.team, bomb.position) === this) {
-          this.mode = 'objective'
-          if (!this.hasGoal || this.goal.distanceToSquared(bomb.position) > 1) this.setGoal(bomb.position, false)
-          return true
-        }
+      if (this.role === 'fetch') {
+        this.setObjective(bomb.position, 0.9, true, true)
+        return
       }
-      if (this.freshThreatWithin(now, 16)) return false
-      // Escort: move with the carrier toward the chosen site.
-      const c = bomb.carrier ?? null
-      const site = sites.find((s2) => s2.id === this.mgr.attackSite(sites)) ?? sites[0]!
-      const anchor = c ? _v.lerpVectors(c.position, site.position, 0.35) : site.position
-      this.mode = 'objective'
-      this.objT -= 0.3
-      if (!this.hasGoal || this.objT <= 0) {
-        this.objT = 3 + Math.random() * 3
-        const k = this.nav.randomNear(anchor.x, anchor.z, 7)
-        if (k >= 0) this.setGoalNode(k)
+      const carrier = bomb.carrier
+      if (this.role === 'escort' && carrier) {
+        // Stay a few metres off the carrier, on the site side.
+        _v.lerpVectors(carrier.position, site.position, Math.min(1, 6 / Math.max(6, carrier.position.distanceTo(site.position))))
+        this.setObjective(_v, 4, false, false)
+        return
       }
-      return true
+      // Entry: clear the site ahead of the carrier, then hold it.
+      this.setObjective(site.position, site.radius + 6, true, false)
+      void now
+      return
     }
     // Defenders.
     if (bomb.planted) {
-      const d = bomb.position.distanceTo(this.position)
-      this.mode = 'objective'
-      if (mode.canDefuse(this) || d < 1.0) {
-        if (this.freshThreatWithin(now, 10)) return false
-        this.hasGoal = false
-        this.pathLen = 0
-        if (!this.objAction && mode.canDefuse(this) && Math.hypot(this.velocity.x, this.velocity.z) < 0.3) {
-          if (mode.beginDefuse(this)) this.objAction = 'defuse'
+      if (this.role === 'defuse') {
+        this.setObjective(bomb.position, 1.6, true, true)
+        if (mode.canDefuse(this) && !this.objAction) {
+          this.mgr.stat('defuseAttempts')
+          this.hasGoal = false
+          this.pathLen = 0
+          if (Math.hypot(this.velocity.x, this.velocity.z) < 1 && mode.beginDefuse(this)) {
+            this.objAction = 'defuse'
+            this.mgr.stat('defuseStarts')
+          }
         }
-        return true
-      }
-      if (!this.hasGoal || this.goal.distanceToSquared(bomb.position) > 1) this.setGoal(bomb.position, false)
-      return true
+      } else this.setObjective(bomb.position, 9, true, false)
+      return
     }
-    if (this.freshThreatWithin(now, 18)) return false
-    this.objT -= 0.3
-    let site = sites.find((s2) => s2.id === this.objId)
-    if (!site || this.objT <= 0) {
-      // Balance defenders across sites; rotate toward gunfire.
-      let best = sites[0]!
-      let bestS = -Infinity
-      for (const s2 of sites) {
-        let sc = -this.mgr.objectiveLoad(this.team, s2.id, this) * 3 + Math.random()
-        if (now - this.alertT < 6 && this.alertPos.distanceTo(s2.position) < 22) sc += 4
-        if (s2.id === this.objId) sc += 1.5
-        if (sc > bestS) {
-          bestS = sc
-          best = s2
-        }
-      }
-      if (best.id !== this.objId) this.objHold = false
-      this.objId = best.id
-      this.objT = 12 + Math.random() * 10
-      site = best
-    }
-    this.mode = 'objective'
-    this.holdInside(site.position, site.radius + 4, now)
-    return true
+    const mine = sites.find((s2) => s2.id === (this.role === 'defB' ? 'B' : 'A')) ?? sites[0]!
+    this.objId = mine.id
+    this.setObjective(mine.position, mine.radius + 5, true, false)
   }
 
-  private freshThreatWithin(now: number, r: number): boolean {
-    for (const m of this.memories) {
-      if (!m.actor.alive || now - Math.max(m.lastSeen, m.lastHeard) > 3) continue
-      if (m.lastKnown.distanceToSquared(this.position) < r * r) return true
-    }
-    return false
-  }
-
-  /** Go to (and hold at) a covered node inside a radius around p. */
-  private holdInside(p: Vector3, radius: number, now: number) {
-    const inside = Math.hypot(p.x - this.position.x, p.z - this.position.z) < radius * 0.85
+  /** Keep the nav goal on the objective (a covered node inside it once there). */
+  private goObjective() {
+    const inside = this.insideObjective()
     this.holdNodeT -= 0.3
-    if (!this.objHold || this.holdNodeT <= 0 || (!this.hasGoal && !inside)) {
-      let best = -1
-      let bestS = -Infinity
-      for (let i = 0; i < 12; i++) {
-        const k = this.nav.randomNear(p.x, p.z, radius * 0.75)
-        if (k < 0) continue
-        const s = this.nav.cover[k]! * 4 - (this.friendNear(this.nav.px[k]!, this.nav.pz[k]!, 2.5) ? 4 : 0) + Math.random()
-        if (s > bestS) {
-          bestS = s
-          best = k
-        }
+    if (inside) {
+      if (!this.objHoldIn) return
+      if (!this.objHold || this.holdNodeT <= 0) {
+        const k = this.nodeInside(true)
+        if (k >= 0) this.setGoalNode(k)
+        this.objHold = true
+        this.holdNodeT = 5 + Math.random() * 6
       }
-      if (best >= 0) this.setGoalNode(best)
-      this.objHold = true
-      this.holdNodeT = 6 + Math.random() * 8
+      if (this.pathI >= this.pathLen && !this.target && Math.random() < 0.35) this.wantStance = 1
+      return
     }
-    if (inside && this.pathI >= this.pathLen && Math.random() < 0.3) this.wantStance = 1
-    void now
+    // Not there yet: path to a node inside the area (re-picked if our goal drifted out).
+    const g = this.goal
+    // Must-enter objectives accept a nearby goal: the last metres are walked directly
+    // (re-picking every think would reset the path and the bot would never arrive).
+    const accept = this.objDirect ? Math.max(this.objR, 5) : this.objR
+    const goalInside = this.hasGoal && Math.hypot(g.x - this.objPos.x, g.z - this.objPos.z) < accept && Math.abs(g.y - this.objPos.y) < 3
+    if (!goalInside || (this.pathLen === 0 && !this.objDirect)) {
+      const k = this.nodeInside(false)
+      if (k >= 0) this.setGoalNode(k)
+      else this.setGoal(this.objPos, false)
+      this.objHold = false
+    }
+  }
+
+  /** A goal node inside the objective area (prefers cover when holding). */
+  private nodeInside(preferCover: boolean): number {
+    const nav = this.nav
+    const p = this.objPos
+    const r = this.objR * 0.8
+    let best = -1
+    let bestS = -Infinity
+    for (let i = 0; i < 14; i++) {
+      const k = nav.randomNear(p.x, p.z, r)
+      if (k < 0) continue
+      const d = Math.hypot(nav.px[k]! - p.x, nav.pz[k]! - p.z)
+      if (d > r || Math.abs(nav.py[k]! - p.y) > 2.5) continue
+      let sc = Math.random() - d * 0.2
+      if (preferCover) sc += nav.cover[k]! * 4 - (this.friendNear(nav.px[k]!, nav.pz[k]!, 2) ? 3 : 0)
+      if (sc > bestS) {
+        bestS = sc
+        best = k
+      }
+    }
+    return best
   }
 
   private considerGrenade(m: Memory, now: number) {
@@ -1507,14 +1553,16 @@ export class Bot implements Actor {
       let dz = pz - this.position.z
       let dh = Math.hypot(dx, dz)
       const dy = py - this.position.y
-      if (dh < 0.55 && Math.abs(dy) < 0.9) {
+      // Reached, or standing above it (on an unmapped ledge: the next step drops us down).
+      if (dh < 0.55 && dy < 0.9 && dy > -4.5) {
         this.pathI++
         if (this.pathI >= this.pathLen) return
         k = this.path[this.pathI]!
       }
       // Lookahead smoothing (string-pull), staggered.
       this.smoothT -= dt
-      if (this.smoothT <= 0) {
+      this.noSmoothT -= dt
+      if (this.smoothT <= 0 && this.noSmoothT <= 0) {
         this.smoothT = 0.25 + Math.random() * 0.1
         this.smoothAhead()
         k = this.path[this.pathI]!
@@ -1538,7 +1586,10 @@ export class Bot implements Actor {
       if (dh > 1e-3) this.wish.set(dx / dh, 0, dz / dh)
       // Speed: sprint when travelling with nothing around, run otherwise.
       const now = this.game.time
-      const calm = !engaged && now - this.alertT > 3 && (!this.targetMem || now - this.targetMem.lastSeen > 3)
+      // Objective runs ignore distant gunfire (Domination is never quiet); still no sprint right after contact.
+      const calm = this.objActive && this.game.mode.id === 'dom'
+        ? !engaged && (!this.targetMem || now - this.targetMem.lastSeen > 1.5)
+        : !engaged && now - this.alertT > 3 && (!this.targetMem || now - this.targetMem.lastSeen > 3)
       const remaining = (this.pathLen - this.pathI) * 1.0
       // Sprint only when looking roughly where we run (else the carry pose reads as port-arms sideways).
       const lookAligned = dh > 1e-3 && Math.abs(wrapAngle(yawFromDirection(dx, dz) - this.yaw)) < 1.0
@@ -1549,11 +1600,14 @@ export class Bot implements Actor {
       // Stuck detection.
       this.stuckT += dt
       if (this.stuckT > 1.1) {
-        const moved = this.stuckPos.distanceTo(this.position)
+        // Horizontal progress only (hopping in place is not progress).
+        const moved = Math.hypot(this.stuckPos.x - this.position.x, this.stuckPos.z - this.position.z)
         this.stuckT = 0
         this.stuckPos.copy(this.position)
         if (moved < 0.4 && this.wishSpeed > 0.5) {
           this.stuckCount++
+          // A shortcut got us stuck: follow the raw node chain for a while.
+          this.noSmoothT = 5
           // Repeatedly stuck on the same waypoint: make A* route around it.
           if (this.stuckCount >= 2 && this.pathI < this.pathLen) this.nav.penalize(this.path[this.pathI]!, 30)
           if (this.grounded && this.stuckCount === 1) this.jump()
@@ -1570,6 +1624,17 @@ export class Bot implements Actor {
       if (this.repathT <= 0) this.repath()
     }
 
+    // Last metres into a flag / site / the bomb: walk straight in.
+    if (this.objActive && this.objDirect && !follow && !this.insideObjective(0.7)) {
+      const dx = this.objPos.x - this.position.x
+      const dz = this.objPos.z - this.position.z
+      const d = Math.hypot(dx, dz)
+      if (d > 0.05) {
+        this.wish.set(dx / d, 0, dz / d)
+        this.wishSpeed = CONFIG.walkSpeed * 0.8 * mob
+        follow = true
+      }
+    }
     if (engaged) {
       // Combat footwork: strafe around the target plus advance/retreat.
       const t = this.target!
@@ -1595,6 +1660,15 @@ export class Bot implements Actor {
         if (this.ledgeAhead(wx, wz)) {
           this.strafeDir = -this.strafeDir
           this.strafeT = 0.6
+          wx = wz = 0
+        }
+      }
+      // Holding a flag/site: never strafe out of the circle.
+      if (this.objActive && this.objHoldIn && this.insideObjective()) {
+        const nx = this.position.x + wx * 0.8 - this.objPos.x
+        const nz = this.position.z + wz * 0.8 - this.objPos.z
+        if (Math.hypot(nx, nz) > this.objR * 0.85) {
+          this.strafeDir = -this.strafeDir
           wx = wz = 0
         }
       }
@@ -1666,8 +1740,8 @@ export class Bot implements Actor {
     if (Math.abs(by - ay) > 1.2) return false
     const nx = dx / len
     const nz = dz / len
-    // Knee-height rays left and right of the centre line.
-    for (const s of [-1, 1]) {
+    // Knee-height rays on and either side of the centre line (catches thin posts).
+    for (let s = -1; s <= 1; s++) {
       _a.set(ax - nz * r * s, Math.max(ay, by) + 0.5, az + nx * r * s)
       _b.set(bx - nz * r * s, Math.max(ay, by) + 0.5, bz + nx * r * s)
       if (!col.lineOfSight(_a, _b)) return false

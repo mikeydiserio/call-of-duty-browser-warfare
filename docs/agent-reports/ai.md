@@ -39,8 +39,33 @@
 
 - **Screenshots:** `ai/r_*.png` (faces, 9 m and 30 m lines, aiming, running, dead).
 
+**Objective tuning (integrator pass)**
+
+Measured the integrator's way: default match settings, the player present and stepped (idle), stepping mode, player, bots and combat at 1/60.
+- **Roles:**
+  - Domination: 2 bots rush the near flag, 2 contest B, and the rest flex, re-evaluating every 3–5 s.
+  - S&D: carrier, 2 escorts, entry (clears the site), fetch (picks up a dropped bomb). Defenders split between A and B, and the nearest one defuses.
+  - Roles and counters are in `bots.debugStats`.
+- **Objective anchor:** a bot in a firefight fights from or toward its flag or site instead of chasing the kill. Bots holding a flag never strafe out of the circle.
+- **Last metres:** must-enter objectives (flags being taken, the site, the bomb) end with direct steering.
+- **Earlier failures:**
+  - The S&D carrier used to stop at a nav node outside the 3 m site.
+  - The defuser used to re-path every think and never arrive.
+- **Nav fixes:**
+  - A waypoint counts as reached when the bot is standing above it (unmapped ledges).
+  - Stuck detection measures horizontal progress.
+  - The walkability check casts a centre knee ray.
+  - Shortcut smoothing pauses after a bot gets stuck.
+- **Results:**
+
+  | Mode | Result |
+  |---|---|
+  | Domination (3 matches) | 19, 19 and 17 captures (integrator baseline 5); B flips constantly |
+  | S&D (5 matches, 27 rounds) | 18 plants and 8 defuses (baseline 0 plants) |
+  | `bots.update` | 0.3–0.9 ms |
+
 **Known issues**
-- S&D attackers plant rarely (about once in 10 rounds), because rounds usually end in elimination first.
+- In S&D the player's side often loses: the scripted test leaves the player standing idle, so that side is effectively a bot short.
 - Shemagh checks on the neck and tail are coarse.
 - A corpse snapshot taken while the ragdoll is still moving freezes mid-fall (rare).
 
