@@ -1,8 +1,9 @@
 import type { Loadout, PerkId, WeaponId } from '../core/types'
 import { PRIMARIES, SECONDARIES, WEAPONS } from '../weapons/defs'
+import { WeaponPreview, weaponThumbnail } from '../weapons/preview'
 import { CLASS_LABEL, PERK_TIERS, PERKS, WEAPON_BLURB, weaponStats, type WeaponStats } from './data'
 import { el, setClass } from './dom'
-import { perkSvg, weaponSvg } from './icons'
+import { perkSvg } from './icons'
 import { keyHints, type Screen, type UiCtx } from './screen'
 
 const LOADOUT_KEY = 'mw-rust-loadout'
@@ -31,6 +32,10 @@ export class ClassScreen implements Screen {
   private slotEls: HTMLElement[] = []
   private optsEl: HTMLElement
   private pvArt: HTMLElement
+  /** Live 3D turntable of the selected weapon (same models as the viewmodel). */
+  private pv3d: HTMLElement
+  private pvPerk: HTMLElement
+  private wpv = new WeaponPreview()
   private pvName: HTMLElement
   private pvType: HTMLElement
   private pvDesc: HTMLElement
@@ -65,6 +70,12 @@ export class ClassScreen implements Screen {
 
     const mid = el('div', 'cac-preview panel', cols)
     this.pvArt = el('div', 'pv-art', mid)
+    this.pv3d = el('div', 'pv-3d', this.pvArt)
+    this.pv3d.style.cssText = 'position:absolute;inset:0;'
+    this.pvPerk = el('div', 'pv-perk', this.pvArt)
+    this.pvPerk.style.cssText = 'display:contents;'
+    if (getComputedStyle(this.pvArt).position === 'static') this.pvArt.style.position = 'relative'
+    this.wpv.mount(this.pv3d)
     this.pvType = el('div', 'pv-type', mid)
     this.pvName = el('div', 'pv-name', mid)
     this.pvDesc = el('p', 'pv-desc', mid)
@@ -116,6 +127,7 @@ export class ClassScreen implements Screen {
   }
 
   enter() {
+    this.wpv.setVisible(true)
     this.focus = 'slots'
     this.slotIdx = 0
     this.refreshSlots()
@@ -123,6 +135,7 @@ export class ClassScreen implements Screen {
   }
 
   leave() {
+    this.wpv.setVisible(false)
     try {
       localStorage.setItem(LOADOUT_KEY, JSON.stringify(this.loadout))
     } catch {
@@ -147,7 +160,7 @@ export class ClassScreen implements Screen {
         ico.innerHTML = perkSvg(v as PerkId)
       } else {
         name.textContent = WEAPONS[v as WeaponId].name.toUpperCase()
-        ico.innerHTML = weaponSvg(v as WeaponId)
+        ico.innerHTML = weaponImg(v as WeaponId)
       }
       setClass(e, 'sel', i === this.slotIdx)
     })
@@ -176,7 +189,7 @@ export class ClassScreen implements Screen {
         b.innerHTML = `<span class="o-ico">${perkSvg(p.id)}</span><span class="o-txt"><span class="o-name">${p.name.toUpperCase()}</span><span class="o-sub">${p.desc}</span></span><span class="o-tick"></span>`
       } else {
         const w = WEAPONS[id as WeaponId]
-        b.innerHTML = `<span class="o-ico wide">${weaponSvg(w.id)}</span><span class="o-txt"><span class="o-name">${w.name.toUpperCase()}</span><span class="o-sub">${CLASS_LABEL[w.class] ?? ''}</span></span><span class="o-tick"></span>`
+        b.innerHTML = `<span class="o-ico wide">${weaponImg(w.id)}</span><span class="o-txt"><span class="o-name">${w.name.toUpperCase()}</span><span class="o-sub">${CLASS_LABEL[w.class] ?? ''}</span></span><span class="o-tick"></span>`
       }
       b.addEventListener('mouseenter', () => {
         if (this.optIdx !== i) this.ctx.sfx('hover')
@@ -222,14 +235,17 @@ export class ClassScreen implements Screen {
     setClass(this.el, 'perk-view', isPerk)
     if (isPerk) {
       const p = PERKS[id as PerkId]
-      this.pvArt.innerHTML = perkSvg(p.id, 'big')
+      this.pv3d.style.visibility = 'hidden'
+      this.pvPerk.innerHTML = perkSvg(p.id, 'big')
       this.pvType.textContent = `TIER ${p.tier} PERK`
       this.pvName.textContent = p.name.toUpperCase()
       this.pvDesc.textContent = p.desc
       return
     }
     const w = WEAPONS[id as WeaponId]
-    this.pvArt.innerHTML = weaponSvg(w.id, 'big')
+    this.pvPerk.textContent = ''
+    this.pv3d.style.visibility = 'visible'
+    this.wpv.setWeapon(w.id)
     this.pvType.textContent = CLASS_LABEL[w.class] ?? ''
     this.pvName.textContent = w.name.toUpperCase()
     this.pvDesc.textContent = WEAPON_BLURB[w.id] ?? ''
@@ -275,4 +291,9 @@ export class ClassScreen implements Screen {
       this.selectSlot(this.slotIdx, false)
     }
   }
+}
+
+/** Picker / slot thumbnail rendered once from the real 3D model. */
+function weaponImg(id: WeaponId): string {
+  return `<img class="wthumb" alt="" draggable="false" src="${weaponThumbnail(id)}" style="width:100%;height:100%;object-fit:contain;display:block;pointer-events:none;">`
 }

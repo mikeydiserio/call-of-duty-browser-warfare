@@ -22,6 +22,7 @@ import {
   makeGunmetal,
   makePolymer,
   makeSkin,
+  makeSteel,
   makeWood,
   type PBRSet,
 } from './textures'
@@ -65,7 +66,6 @@ export const WORLD_COLORS: Partial<Record<MatKey, number>> = {
 }
 
 const table = new Map<MatKey, Material>()
-let envTex: Texture | null = null
 const sets: Record<string, PBRSet> = {}
 let ready = false
 
@@ -86,14 +86,73 @@ function std(set: PBRSet | null, o: { color?: number; metalness: number; rough?:
   return m
 }
 
-/** Build the shared material table. Call once, after a renderer exists. */
-export function initViewmodelMaterials(renderer: WebGLRenderer): void {
+/**
+ * Procedural edge wear: screen-space curvature (|d normal| / |d position|)
+ * picks out bevels and sharp radii, which get polished to bare metal / scuffed
+ * polymer — the way real parkerized and anodized finishes wear.
+ */
+/**
+ * Image-based-light multiplier shared by every weapon/arm material. Scene
+ * environments override per-material envMapIntensity, so the viewmodel sets
+ * this each frame (keeps the gun readable in shade) and the menu preview sets
+ * it back to 1 around its own render.
+ */
+export const IBL_BOOST = { value: 1 }
+
+function wear<T extends MeshStandardMaterial>(m: T, color: number, strength: number): T {
+  const wearColor = new Color(color)
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uWearColor = { value: wearColor }
+    sh.uniforms.uWear = { value: strength }
+    sh.uniforms.uIblBoost = IBL_BOOST
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uWearColor;\nuniform float uWear;\nuniform float uIblBoost;')
+      .replace('#include <lights_fragment_maps>', '#include <lights_fragment_maps>\nradiance *= uIblBoost;\niblIrradiance *= uIblBoost;')
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        float wEdge = 0.0;
+        #ifndef FLAT_SHADED
+        {
+          vec3 wn = normalize(vNormal);
+          float curv = length(fwidth(wn)) / max(length(fwidth(vViewPosition)), 1e-6);
+          wEdge = smoothstep(180.0, 900.0, curv) * uWear;
+          #ifdef USE_ROUGHNESSMAP
+          wEdge *= smoothstep(0.2, 0.7, texture2D(roughnessMap, vRoughnessMapUv * 3.1).r + 0.2);
+          #endif
+        }
+        #endif
+        diffuseColor.rgb = mix(diffuseColor.rgb, uWearColor, wEdge);`,
+      )
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.3, wEdge);')
+  }
+  m.customProgramCacheKey = () => 'wpnWear'
+  return m
+}
+
+/** IBL boost only (no edge wear) for fabric, skin, rubber. */
+function ibl<T extends MeshStandardMaterial>(m: T): T {
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uIblBoost = IBL_BOOST
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uIblBoost;')
+      .replace('#include <lights_fragment_maps>', '#include <lights_fragment_maps>\nradiance *= uIblBoost;\niblIrradiance *= uIblBoost;')
+  }
+  m.customProgramCacheKey = () => 'wpnIbl'
+  return m
+}
+
+/**
+ * Build the shared material table (idempotent). Reflections come from each
+ * scene's `environment` (game sky in first person, studio light in the menu
+ * preview), so the same materials work in any renderer.
+ */
+export function initViewmodelMaterials(): void {
   if (ready) return
   ready = true
-  envTex = makeEnvironment(renderer)
-  sets.gun = makeGunmetal(0x34373a, 0x9a9c9e)
-  sets.blued = makeGunmetal(0x1d2023, 0x6a6c6e)
-  sets.steel = makeGunmetal(0x8c8e90, 0xd0d2d4)
+  sets.gun = makeGunmetal(0x585c61, 0xa8abae)
+  sets.blued = makeGunmetal(0x3e434a, 0x8a8f96)
+  sets.steel = makeSteel(0xa4a8ac)
   sets.poly = makePolymer()
   sets.wood = makeWood()
   sets.camo = makeCamo()
@@ -101,15 +160,15 @@ export function initViewmodelMaterials(renderer: WebGLRenderer): void {
   sets.skin = makeSkin()
   sets.grenade = makeGrenadeBody()
 
-  table.set('metal', std(sets.gun!, { color: 0xffffff, metalness: 0.8, rough: 0.9, normalScale: 0.35 }))
-  table.set('steel', std(sets.steel!, { color: 0xffffff, metalness: 0.95, rough: 0.7, normalScale: 0.5 }))
-  table.set('blued', std(sets.blued!, { color: 0xffffff, metalness: 0.9, rough: 0.8, normalScale: 0.6 }))
-  table.set('poly', std(sets.poly!, { color: 0x34363a, metalness: 0.0, rough: 1, normalScale: 0.3 }))
-  table.set('polyTan', std(sets.poly!, { color: 0x9a8560, metalness: 0.0, rough: 1, normalScale: 0.3 }))
-  table.set('wood', std(sets.wood!, { color: 0x9a6f52, metalness: 0.0, rough: 1, normalScale: 0.6 }))
-  table.set('rubber', std(sets.poly!, { color: 0x1a1a1a, metalness: 0, rough: 1, normalScale: 0.6 }))
-  table.set('brass', std(null, { color: 0xc89a3c, metalness: 1, rough: 0.28 }))
-  table.set('chrome', std(null, { color: 0xdadde0, metalness: 1, rough: 0.12 }))
+  table.set('metal', wear(std(sets.gun!, { metalness: 0.75, rough: 1, normalScale: 0.5 }), 0x9a9c9e, 0.85))
+  table.set('steel', wear(std(sets.steel!, { metalness: 1, rough: 1, normalScale: 0.4 }), 0xd8dadc, 0.4))
+  table.set('blued', wear(std(sets.blued!, { metalness: 0.85, rough: 0.85, normalScale: 0.45 }), 0x7c8086, 0.7))
+  table.set('poly', wear(std(sets.poly!, { color: 0x313337, metalness: 0.0, rough: 1, normalScale: 0.5 }), 0x55575a, 0.45))
+  table.set('polyTan', wear(std(sets.poly!, { color: 0x8c7a58, metalness: 0.0, rough: 1, normalScale: 0.5 }), 0xb8a888, 0.4))
+  table.set('wood', wear(std(sets.wood!, { metalness: 0.0, rough: 1, normalScale: 0.7 }), 0xb06a3a, 0.5))
+  table.set('rubber', ibl(std(sets.poly!, { color: 0x1c1c1c, metalness: 0, rough: 1.15, normalScale: 0.9 })))
+  table.set('brass', ibl(std(null, { color: 0xc89a3c, metalness: 1, rough: 0.28 })))
+  table.set('chrome', ibl(std(null, { color: 0xdadde0, metalness: 1, rough: 0.12 })))
   table.set('void', new MeshStandardMaterial({ color: 0x050505, roughness: 0.9, metalness: 0 }))
   table.set(
     'lens',
@@ -117,17 +176,13 @@ export function initViewmodelMaterials(renderer: WebGLRenderer): void {
   )
   table.set('glass', new MeshStandardMaterial({ color: 0x9fc6ff, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.1, depthWrite: false, side: DoubleSide, envMapIntensity: 2 }))
   table.set('dot', new MeshBasicMaterial({ color: new Color(1, 0.12, 0.05).multiplyScalar(4), toneMapped: false }))
-  table.set('glove', std(sets.glove!, { color: 0x2a2a26, metalness: 0, rough: 1, normalScale: 0.5 }))
-  table.set('skin', std(sets.skin!, { color: 0xffffff, metalness: 0, rough: 1, normalScale: 0.5 }))
-  table.set('camo', std(sets.camo!, { color: 0xffffff, metalness: 0, rough: 1, normalScale: 1.2 }))
-  table.set('strap', std(sets.glove!, { color: 0x3c3a31, metalness: 0, rough: 1, normalScale: 1.2 }))
-  table.set('grenade', std(sets.grenade!, { color: 0xffffff, metalness: 0.35, rough: 1, normalScale: 1.2 }))
+  table.set('glove', ibl(std(sets.glove!, { color: 0x2a2a26, metalness: 0, rough: 1, normalScale: 0.5 })))
+  table.set('skin', ibl(std(sets.skin!, { color: 0xffffff, metalness: 0, rough: 1, normalScale: 0.5 })))
+  table.set('camo', ibl(std(sets.camo!, { color: 0xffffff, metalness: 0, rough: 1, normalScale: 1.2 })))
+  table.set('strap', ibl(std(sets.glove!, { color: 0x3c3a31, metalness: 0, rough: 1, normalScale: 1.2 })))
+  table.set('grenade', ibl(std(sets.grenade!, { color: 0xffffff, metalness: 0.35, rough: 1, normalScale: 1.2 })))
   table.set('watch', new MeshStandardMaterial({ color: 0xffffff, roughness: 0.3, metalness: 0.3 }))
 
-  for (const m of table.values()) {
-    if ('envMap' in m) (m as MeshStandardMaterial).envMap = envTex
-    if (m instanceof MeshStandardMaterial) m.envMapIntensity = (m.envMapIntensity ?? 1) * 1.1
-  }
 }
 
 export function mat(k: MatKey): Material {
@@ -136,19 +191,15 @@ export function mat(k: MatKey): Material {
   return m
 }
 
-export function getEnvTexture(): Texture | null {
-  return envTex
-}
-
-/** Warm desert-afternoon studio: dark sand floor, hazy horizon, bright sun patch + soft box. */
-function makeEnvironment(renderer: WebGLRenderer): Texture {
+/** Warm desert-afternoon studio: dark sand floor, hazy horizon, bright sun patch + soft box (menu preview). */
+export function makeStudioEnvironment(renderer: WebGLRenderer): Texture {
   const scene = new Scene()
   const geo = new SphereGeometry(50, 48, 32)
   const pos = geo.attributes.position!
   const col = new Float32Array(pos.count * 3)
-  const top = new Color(0x7f98b4)
-  const hor = new Color(0xe0c49a)
-  const bot = new Color(0x4a3c2c)
+  const top = new Color(0x8a9cb2)
+  const hor = new Color(0xcfc8bc)
+  const bot = new Color(0x3c3936)
   const tmp = new Color()
   for (let i = 0; i < pos.count; i++) {
     const y = pos.getY(i) / 50
