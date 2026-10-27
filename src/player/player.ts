@@ -161,6 +161,8 @@ export class Player implements Actor {
   private deathYawTarget = 0
   private deathPitchTarget = -0.3
   private deathHasTarget = false
+  /** How far the death cam may slump forward before it would clip into a wall. */
+  private deathBack = 0.45
 
   private readonly move: MovementState = {
     speed: 0, maxSpeed: CONFIG.walkSpeed, sprinting: false, grounded: false, stance: 0,
@@ -223,6 +225,13 @@ export class Player implements Actor {
       this.deathPitchTarget = -0.35
     }
     this.hitFlash = 0.6
+    // The camera slumps forward along the final death-cam heading: keep it out of walls there.
+    const fy = this.deathHasTarget ? this.deathYawTarget : this.yaw
+    _o.set(this.position.x, this.position.y + 0.3, this.position.z)
+    _d.set(-Math.sin(fy), 0, -Math.cos(fy))
+    const behind = this.game.collision.raycast(_o, _d, 0.8)
+    this.deathBack = behind ? Math.max(0, behind.distance - 0.3) * 0.9 : 0.45
+    if (this.deathBack > 0.45) this.deathBack = 0.45
   }
 
   spawn(position: Vector3, yaw: number) {
@@ -1114,7 +1123,7 @@ export class Player implements Actor {
     if (t > 0.55) eye += 0.05 * Math.exp(-9 * (t - 0.55)) * Math.abs(Math.sin(14 * (t - 0.55)))
     this.camEye = eye
     this.camRoll = this.deathRoll * smoothstep(0, 0.6, t)
-    this.camBack = -0.45 * smoothstep(0, 0.7, t)
+    this.camBack = -this.deathBack * smoothstep(0, 0.7, t)
     this.bobX = 0
     this.landDip.update(0, dt)
     this.kickPitch.update(0, dt)
@@ -1126,7 +1135,7 @@ export class Player implements Actor {
 
     const fx = g.render.effects
     fx.dead += (1 - fx.dead) * (1 - Math.exp(-1.8 * dt))
-    fx.damage = damp(fx.damage, 0.85, 2.5, dt)
+    fx.damage = damp(fx.damage, 0.6, 2.5, dt)
     fx.ads = damp(fx.ads, 0, 10, dt)
 
     if (t > 0.4 && (s.fire || s.firePressed)) g.mode.requestRespawn(this)
