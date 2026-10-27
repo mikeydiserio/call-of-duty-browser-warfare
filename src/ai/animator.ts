@@ -204,16 +204,16 @@ export class SoldierAnimator {
     b.pelvis.quaternion.setFromEuler(_e)
 
     // ── Spine chain: counter twist + aim pitch + body-yaw lag.
-    const yawLag = climbing ? 0 : clamp(wrapAngle(inp.aimYaw - inp.bodyYaw), -1.1, 1.1)
+    const yawLag = climbing ? 0 : clamp(wrapAngle(inp.aimYaw - inp.bodyYaw), -1.3, 1.3)
     const pitch = clamp(inp.aimPitch, -1.2, 1.2) * (1 - this.ladderW)
     const unlean = -lean
     const tw2 = -this.hipTwist + yawLag
     _e.set(unlean * 0.45 + pitch * 0.25 + flX * 0.6, tw2 * 0.45, flZ * 0.5, 'YXZ')
     b.spine.quaternion.setFromEuler(_e)
     const breathe = Math.sin(this.breath * 1.7) * 0.012 * (1 - this.moveW)
-    _e.set(unlean * 0.3 + pitch * 0.3 + breathe + flX * 0.4, tw2 * 0.4, flZ * 0.3, 'YXZ')
+    _e.set(unlean * 0.3 + pitch * 0.3 + breathe + flX * 0.4, tw2 * 0.5, flZ * 0.3, 'YXZ')
     b.chest.quaternion.setFromEuler(_e)
-    _e.set(unlean * 0.1 + pitch * 0.15 + this.proneW * 0.55, tw2 * 0.1, 0, 'YXZ')
+    _e.set(unlean * 0.1 + pitch * 0.15 + this.proneW * 0.55, tw2 * 0.05, 0, 'YXZ')
     b.neck.quaternion.setFromEuler(_e)
     // Aiming: cheek weld (head dips and cants toward the stock).
     _e.set(unlean * 0.15 + pitch * 0.25 - this.sprintW * 0.1 + (climbing ? 0.35 : 0) - this.aimW * 0.12 + this.proneW * 0.6, tw2 * 0.05 - this.aimW * 0.08, -this.aimW * 0.14, 'YXZ')
