@@ -2,18 +2,19 @@ import { Vector3 } from 'three'
 import { BotManager } from '../ai/bots'
 import { AudioEngine } from '../audio/audio'
 import { Combat } from '../game/combat'
-import { TeamDeathmatch } from '../game/mode'
+import { GameMode } from '../game/mode'
 import { Player } from '../player/player'
 import { Effects } from '../render/fx/effects'
 import { GameRenderer } from '../render/renderer'
 import { UI } from '../ui/ui'
 import { CollisionWorld } from '../world/collision'
 import { buildRustMap } from '../world/rust/map'
+import { type LobbyService, OfflineLobby } from '../net/lobby'
 import { CONFIG } from './config'
 import { EventBus } from './events'
 import { Input } from './input'
 import { damp } from './math'
-import type { Actor, Loadout, MapData } from './types'
+import type { Actor, Loadout, MapData, MatchSettings, NetRole } from './types'
 
 export interface Settings {
   sensitivity: number
@@ -38,15 +39,21 @@ export class Game {
   readonly collision = new CollisionWorld()
   readonly map: MapData
   readonly combat: Combat
-  readonly mode: TeamDeathmatch
+  readonly mode: GameMode
   readonly player: Player
   readonly bots: BotManager
   readonly fx: Effects
   readonly audio: AudioEngine
   readonly ui: UI
+  /** Lobby / matchmaking (offline until the net layer swaps in the online implementation). */
+  lobby: LobbyService
   actors: Actor[] = []
   settings: Settings
   loadout: Loadout
+  /** Lobby settings for the current/next match (mode, bots, limits). */
+  match: MatchSettings = defaultMatch('tdm')
+  /** Network role; 'offline' for solo vs bots. Set by the net layer (src/net). */
+  netRole: NetRole = 'offline'
   /** Gameplay clock (seconds), frozen while paused. */
   time = 0
   paused = false
@@ -79,11 +86,12 @@ export class Game {
     this.render.setEnvironment(this.map.environment)
 
     this.combat = new Combat(this)
-    this.mode = new TeamDeathmatch(this)
+    this.mode = new GameMode(this)
     this.player = new Player(this)
     this.bots = new BotManager(this)
     this.fx = new Effects(this)
     this.audio = new AudioEngine(this)
+    this.lobby = new OfflineLobby(this)
     this.ui = new UI(this, uiRoot)
 
     this.applySettings()
@@ -102,8 +110,9 @@ export class Game {
   }
 
   /** Called by the UI when the player hits "Start match". Must be inside a user gesture. */
-  startMatch(loadout: Loadout) {
+  startMatch(loadout: Loadout, match: MatchSettings = this.match) {
     this.loadout = loadout
+    this.match = match
     saveJSON(LOADOUT_KEY, loadout)
     this.audio.unlock()
     this.combat.clearGrenades()
@@ -222,6 +231,21 @@ export class Game {
 }
 
 const _target = new Vector3()
+
+/** Default lobby settings per mode (MW2-ish limits). */
+export function defaultMatch(mode: MatchSettings['mode']): MatchSettings {
+  const base = { mode, mapId: 'rust', botDifficulty: 0.55 }
+  switch (mode) {
+    case 'ffa':
+      return { ...base, botCount: 7, scoreLimit: 30, timeLimit: 600 }
+    case 'dom':
+      return { ...base, botCount: 11, scoreLimit: 200, timeLimit: 900 }
+    case 'sd':
+      return { ...base, botCount: 9, scoreLimit: 4, timeLimit: 150 }
+    default:
+      return { ...base, botCount: 11, scoreLimit: CONFIG.scoreLimit, timeLimit: CONFIG.timeLimit }
+  }
+}
 
 function loadJSON<T extends object>(key: string, fallback: T): T {
   try {

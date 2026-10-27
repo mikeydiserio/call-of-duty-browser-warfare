@@ -2,15 +2,26 @@ import { Vector3 } from 'three'
 import { CONFIG } from '../core/config'
 import type { MatchPhase } from '../core/events'
 import type { Game } from '../core/game'
-import type { Actor, DamageInfo, SpawnPoint, Team } from '../core/types'
+import type { Actor, BombState, DamageInfo, GameModeId, MatchSettings, ObjectiveState, SpawnPoint, Team } from '../core/types'
 import { otherTeam } from '../core/types'
 
 const _eye = new Vector3()
 const _p = new Vector3()
 
-/** Team Deathmatch rules: scoring, spawning, respawn timers, killstreaks, UAV. */
-export class TeamDeathmatch {
+/**
+ * Match rules: scoring, spawning, respawn timers, killstreaks, UAV.
+ * Currently implements Team Deathmatch; FFA / Domination / S&D plug in via `id` (see MatchSettings).
+ */
+export class GameMode {
+  /** Active mode for the current/next match (set from game.match in begin()). */
+  id: GameModeId = 'tdm'
   phase: MatchPhase = 'menu'
+  /** Domination flags (empty unless id === 'dom'). */
+  objectives: ObjectiveState[] = []
+  /** Search & Destroy bomb (null unless id === 'sd'). */
+  bomb: BombState | null = null
+  /** Current round (S&D), 1-based; 1 for non-round modes. */
+  round = 1
   score: Record<Team, number> = { tf141: 0, opfor: 0 }
   timeLeft = CONFIG.timeLimit
   /** Countdown during the pre-match intro. */
@@ -29,6 +40,21 @@ export class TeamDeathmatch {
     return this.game.player.team
   }
 
+  get settings(): MatchSettings {
+    return this.game.match
+  }
+
+  /** True for team modes; false in Free-for-All. */
+  get isTeamMode(): boolean {
+    return this.id !== 'ffa'
+  }
+
+  /** Use this instead of comparing `team` directly: in FFA everyone but yourself is an enemy. */
+  isEnemy(a: Actor, b: Actor): boolean {
+    if (a === b) return false
+    return this.isTeamMode ? a.team !== b.team : true
+  }
+
   setPhase(phase: MatchPhase, winner?: Team | 'draw') {
     this.phase = phase
     this.game.events.emit('match:phase', { phase, winner })
@@ -36,8 +62,12 @@ export class TeamDeathmatch {
 
   /** Reset scores and spawn everyone; begins the frozen intro countdown. */
   begin() {
+    this.id = this.game.match.mode
+    this.objectives = []
+    this.bomb = null
+    this.round = 1
     this.score = { tf141: 0, opfor: 0 }
-    this.timeLeft = CONFIG.timeLimit
+    this.timeLeft = this.game.match.timeLimit
     this.uavUntil = { tf141: 0, opfor: 0 }
     this.playerStreaks = []
     this.winner = null
@@ -104,13 +134,13 @@ export class TeamDeathmatch {
       this.score[killer.team]++
       this.game.events.emit('score:changed', { ...this.score })
       this.checkStreak(killer)
-      if (this.score[killer.team] >= CONFIG.scoreLimit) {
+      if (this.score[killer.team] >= this.game.match.scoreLimit) {
         this.end()
         return
       }
       // Lead-change / near-win announcer lines.
       const s = this.score[killer.team]
-      if (s === CONFIG.scoreLimit - 5) {
+      if (s === this.game.match.scoreLimit - 5) {
         const ours = killer.team === this.playerTeam
         this.game.events.emit('match:announce', { text: ours ? 'FIVE KILLS TO WIN' : 'ENEMY FIVE KILLS FROM VICTORY', voice: ours ? 'near_win' : 'near_loss' })
       }
@@ -214,3 +244,6 @@ export class TeamDeathmatch {
     return best
   }
 }
+
+/** @deprecated use GameMode. */
+export const TeamDeathmatch = GameMode
