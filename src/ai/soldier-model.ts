@@ -234,6 +234,27 @@ const torsoChain: Weight = (y) => {
     W.w1 = 0
   }
 }
+
+/** Thigh: pelvis above the hip crease, thigh in the middle, shin below the knee. */
+const hipKnee = (thigh: BoneName, shin: BoneName): Weight => (y) => {
+  if (y > 0.88) {
+    const t = sstep((y - 0.88) / 0.1)
+    W.b0 = BI.pelvis
+    W.w0 = t
+    W.b1 = BI[thigh]
+    W.w1 = 1 - t
+  } else if (y < 0.55) {
+    const t = sstep((y - 0.44) / 0.11)
+    W.b0 = BI[thigh]
+    W.w0 = t
+    W.b1 = BI[shin]
+    W.w1 = 1 - t
+  } else {
+    W.b0 = BI[thigh]
+    W.w0 = 1
+    W.w1 = 0
+  }
+}
 const rigid = (b: BoneName): Weight => BI[b]
 
 // ─── Mesh builder ───────────────────────────────────────────────────────────
@@ -351,6 +372,18 @@ function mat(pos: [number, number, number], scale: [number, number, number], rot
   if (rot) _q.setFromEuler(_e.set(rot[0], rot[1], rot[2]))
   else _q.identity()
   return _m.compose(_p, _q, _s)
+}
+
+
+const _m2 = new Matrix4()
+/** Rotation about a pivot point (for lofts authored in world space). */
+function matAbout(pivot: [number, number, number], rot: [number, number, number]): Matrix4 {
+  _q.setFromEuler(_e.set(rot[0], rot[1], rot[2]))
+  _m.makeTranslation(pivot[0], pivot[1], pivot[2])
+  _m2.makeRotationFromQuaternion(_q)
+  _m.multiply(_m2)
+  _m2.makeTranslation(-pivot[0], -pivot[1], -pivot[2])
+  return _m.multiply(_m2)
 }
 
 const C = (hex: number) => new Color(hex)
@@ -482,14 +515,14 @@ export function buildSoldier(team: Team, rnd: () => number): SoldierRig {
 
   // ── Torso (shirt) — lofted with a smooth chest/waist profile.
   const torsoSections: Section[] = [
-    { y: 0.93, rx: 0.168, rz: 0.108 },
-    { y: 1.02, rx: 0.162, rz: 0.104 },
-    { y: 1.11, rx: 0.152, rz: 0.1 },
-    { y: 1.2, rx: 0.172, rz: 0.108 },
-    { y: 1.3, rx: 0.192, rz: 0.116 },
-    { y: 1.39, rx: 0.2, rz: 0.114 },
-    { y: 1.45, rx: 0.17, rz: 0.1 },
-    { y: 1.485, rx: 0.075, rz: 0.07 },
+    { y: 0.93, rx: 0.1747, rz: 0.121 },
+    { y: 1.02, rx: 0.1685, rz: 0.1165 },
+    { y: 1.11, rx: 0.1581, rz: 0.112 },
+    { y: 1.2, rx: 0.1789, rz: 0.121 },
+    { y: 1.3, rx: 0.1997, rz: 0.1299 },
+    { y: 1.39, rx: 0.208, rz: 0.1277 },
+    { y: 1.45, rx: 0.1768, rz: 0.112 },
+    { y: 1.485, rx: 0.078, rz: 0.0784 },
   ]
   b.add(loftGeo(torsoSections, 16), mat([0, 0, 0], [1, 1, 1]), topTile, topColor, torsoChain)
   // Collar.
@@ -530,7 +563,7 @@ export function buildSoldier(team: Team, rnd: () => number): SoldierRig {
       b.add(loftGeo([
         { y: 1.668, rx: 0.123, rz: 0.142, cz: 0.014 },
         { y: 1.688, rx: 0.121, rz: 0.14, cz: 0.012 },
-      ], 16), mat([0, 0, 0], [1, 1, 1], [0.14, 0, 0]), TILE.BLACK_NYLON, CS(0.5, 0.5, 0.5), headW, 2.5, false)
+      ], 16), matAbout([0, 1.665, 0], [0.14, 0, 0]), TILE.BLACK_NYLON, CS(0.5, 0.5, 0.5), headW, 2.5, false)
       b.add(T.box, mat([0.108, 1.655, 0.03], [0.022, 0.07, 0.1]), helmetTile, hc, headW, 2.5, false)
       b.add(T.box, mat([-0.108, 1.655, 0.03], [0.022, 0.07, 0.1]), helmetTile, hc, headW, 2.5, false)
       // NVG shroud + flip-up device.
@@ -545,7 +578,7 @@ export function buildSoldier(team: Team, rnd: () => number): SoldierRig {
         b.add(loftGeo([
           { y: 1.675, rx: 0.126, rz: 0.146, cz: 0.014 },
           { y: 1.7, rx: 0.124, rz: 0.144, cz: 0.012 },
-        ], 16), mat([0, 0, 0], [1, 1, 1], [0.14, 0, 0]), TILE.BLACK_NYLON, CS(0.6, 0.6, 0.6), headW, 2.5, false)
+        ], 16), matAbout([0, 1.665, 0], [0.14, 0, 0]), TILE.BLACK_NYLON, CS(0.6, 0.6, 0.6), headW, 2.5, false)
         b.add(T.box, mat([0, 1.688, -0.138], [0.15, 0.052, 0.045]), TILE.BLACK_NYLON, CS(0.5, 0.5, 0.5), headW, 2.5, false)
         b.add(T.box, mat([0.036, 1.688, -0.163], [0.056, 0.036, 0.012]), TILE.METAL, CS(0.18, 0.3, 0.34), headW, 2.5, false)
         b.add(T.box, mat([-0.036, 1.688, -0.163], [0.056, 0.036, 0.012]), TILE.METAL, CS(0.18, 0.3, 0.34), headW, 2.5, false)
@@ -625,7 +658,7 @@ export function buildSoldier(team: Team, rnd: () => number): SoldierRig {
       b.add(loftGeo([
         { y: 1.668, rx: 0.115, rz: 0.131, cz: 0.012 },
         { y: 1.695, rx: 0.114, rz: 0.13, cz: 0.01 },
-      ], 16), mat([0, 0, 0], [1, 1, 1], [0.1, 0, 0]), TILE.RANGER, CS(0.8, 0.8, 0.8), headW, 2.5, false)
+      ], 16), matAbout([0, 1.665, 0], [0.1, 0, 0]), TILE.RANGER, CS(0.8, 0.8, 0.8), headW, 2.5, false)
     } else {
       headgear = 'bare'
       b.add(T.dome, mat([0, 1.688, 0.01], [0.094, 0.086, 0.108], [0.1, 0, 0]), TILE.KNIT, hair, headW, 2.5, false)
@@ -694,24 +727,24 @@ export function buildSoldier(team: Team, rnd: () => number): SoldierRig {
     const upperTile = sleeveless ? TILE.SKIN : topTile
     const upperColor = sleeveless ? SK() : topColor
     // Shoulder cap + upper arm.
-    b.add(T.sphere, mat([sx, 1.41, 0], [0.072, 0.074, 0.072]), upperTile, upperColor, rigid(n.uarm), 1.8)
+    b.add(T.sphere, mat([sx, 1.41, 0], [0.08, 0.082, 0.08]), upperTile, upperColor, rigid(n.uarm), 1.8)
     b.add(loftGeo([
-      { y: 1.42, rx: 0.066, rz: 0.066, cx: sx },
-      { y: 1.3, rx: 0.062, rz: 0.062, cx: sx },
-      { y: 1.2, rx: 0.056, rz: 0.057, cx: sx },
-      { y: 1.125, rx: 0.052, rz: 0.053, cx: sx },
-      { y: 1.07, rx: 0.05, rz: 0.05, cx: sx },
+      { y: 1.42, rx: 0.0739, rz: 0.0739, cx: sx },
+      { y: 1.3, rx: 0.0694, rz: 0.0694, cx: sx },
+      { y: 1.2, rx: 0.0627, rz: 0.0638, cx: sx },
+      { y: 1.125, rx: 0.0582, rz: 0.0594, cx: sx },
+      { y: 1.07, rx: 0.056, rz: 0.056, cx: sx },
     ], 10), mat([0, 0, 0], [1, 1, 1]), upperTile, upperColor, elbow, 1.8)
     // Forearm: sleeve to the roll line, skin below if rolled.
     const rollY = bareForearm ? 1.0 : 0.88
     b.add(loftGeo([
-      { y: 1.125, rx: 0.05, rz: 0.052, cx: sx },
-      { y: rollY, rx: 0.045, rz: 0.046, cx: sx },
-    ], 10), mat([0, 0, 0], [1, 1, 1]), topTile, topColor, joint(n.farm, n.uarm, 1.125, 0.055) /* upper part follows elbow blend */, 1.8)
+      { y: 1.125, rx: 0.056, rz: 0.0582, cx: sx },
+      { y: rollY, rx: 0.0504, rz: 0.0515, cx: sx },
+    ], 10), mat([0, 0, 0], [1, 1, 1]), topTile, topColor, elbow, 1.8)
     b.add(loftGeo([
-      { y: rollY + 0.01, rx: 0.048, rz: 0.049, cx: sx },
-      { y: 0.9, rx: 0.04, rz: 0.04, cx: sx },
-      { y: 0.85, rx: 0.036, rz: 0.036, cx: sx },
+      { y: rollY + 0.01, rx: 0.0538, rz: 0.0549, cx: sx },
+      { y: 0.9, rx: 0.0448, rz: 0.0448, cx: sx },
+      { y: 0.85, rx: 0.0403, rz: 0.0403, cx: sx },
     ], 10), mat([0, 0, 0], [1, 1, 1]), bareForearm ? TILE.SKIN : topTile, bareForearm ? SK() : topColor, wrist, 1.8, !bareForearm)
     if (team === 'tf141' && chance(0.3)) {
       b.add(T.box, mat([sx, 1.125, -0.01], [0.085, 0.09, 0.09]), TILE.COYOTE, CS(0.85, 0.85, 0.85), rigid(n.farm), 1.6) // elbow pad
@@ -728,26 +761,26 @@ export function buildSoldier(team: Team, rnd: () => number): SoldierRig {
     const lx = s * 0.1
     const knee = joint(n.thigh, n.shin, 0.495, 0.055)
     b.add(loftGeo([
-      { y: 1.0, rx: 0.108, rz: 0.104, cx: lx },
-      { y: 0.88, rx: 0.101, rz: 0.099, cx: lx },
-      { y: 0.7, rx: 0.088, rz: 0.088, cx: lx },
-      { y: 0.55, rx: 0.074, rz: 0.075, cx: lx },
-      { y: 0.495, rx: 0.07, rz: 0.071, cx: lx },
-    ], 10), mat([0, 0, 0], [1, 1, 1]), pantsTile, pantsColor, joint(n.thigh, 'pelvis' as BoneName, 0.92, 0.06) /* top blends into pelvis */, 1.8)
+      { y: 1.0, rx: 0.122, rz: 0.1175, cx: lx },
+      { y: 0.88, rx: 0.1141, rz: 0.1119, cx: lx },
+      { y: 0.7, rx: 0.0994, rz: 0.0994, cx: lx },
+      { y: 0.55, rx: 0.0836, rz: 0.0847, cx: lx },
+      { y: 0.495, rx: 0.0791, rz: 0.0802, cx: lx },
+    ], 10), mat([0, 0, 0], [1, 1, 1]), pantsTile, pantsColor, hipKnee(n.thigh, n.shin), 1.8)
     b.add(loftGeo([
-      { y: 0.495, rx: 0.07, rz: 0.071, cx: lx },
-      { y: 0.4, rx: 0.064, rz: 0.066, cx: lx },
-      { y: 0.26, rx: 0.056, rz: 0.058, cx: lx },
-      { y: 0.18, rx: 0.062, rz: 0.062, cx: lx },
+      { y: 0.495, rx: 0.0791, rz: 0.0802, cx: lx },
+      { y: 0.4, rx: 0.0723, rz: 0.0746, cx: lx },
+      { y: 0.26, rx: 0.0633, rz: 0.0655, cx: lx },
+      { y: 0.18, rx: 0.0701, rz: 0.0701, cx: lx },
     ], 10), mat([0, 0, 0], [1, 1, 1]), pantsTile, pantsColor, knee, 1.8)
     // Boots / sneakers.
     const sneaker = team === 'opfor' && chance(0.35)
     const bootTile = sneaker ? TILE.WHITE : TILE.LEATHER
     const bootCol = sneaker ? pick([CS(0.8, 0.8, 0.78), CS(0.15, 0.15, 0.16), CS(0.5, 0.2, 0.15)]) : team === 'tf141' ? CS(1.5, 1.15, 0.85) : CS(1, 0.95, 0.9)
     b.add(loftGeo([
-      { y: 0.2, rx: 0.062, rz: 0.062, cx: lx },
-      { y: 0.14, rx: 0.062, rz: 0.066, cx: lx },
-      { y: 0.07, rx: 0.062, rz: 0.07, cx: lx, cz: -0.012 },
+      { y: 0.2, rx: 0.0657, rz: 0.0657, cx: lx },
+      { y: 0.14, rx: 0.0657, rz: 0.07, cx: lx },
+      { y: 0.07, rx: 0.0657, rz: 0.0742, cx: lx, cz: -0.012 },
     ], 10), mat([0, 0, 0], [1, 1, 1]), bootTile, bootCol, rigid(n.shin), 1.8)
     b.add(T.box, mat([lx, 0.05, -0.06], [0.1, 0.082, 0.285]), bootTile, bootCol, rigid(n.foot), 1.8)
     b.add(T.sphere, mat([lx, 0.044, -0.185], [0.05, 0.04, 0.05]), bootTile, bootCol, rigid(n.foot), 1.8)
@@ -757,7 +790,7 @@ export function buildSoldier(team: Team, rnd: () => number): SoldierRig {
     if (team === 'tf141' || chance(0.25)) {
       b.add(T.box, mat([lx, 0.5, -0.073], [0.105, 0.125, 0.05]), team === 'tf141' ? gearTile : TILE.BLACK_NYLON, team === 'tf141' ? gearColor : CS(0.8, 0.8, 0.8), knee, 1.6)
     }
-    b.add(T.box, mat([s * 0.185, 0.78, 0.0], [0.045, 0.15, 0.11]), pantsTile, vary(pantsColor, 0.05), rigid(n.thigh), 1.6)
+    b.add(T.box, mat([s * 0.208, 0.78, 0.0], [0.05, 0.16, 0.12]), pantsTile, vary(pantsColor, 0.05), rigid(n.thigh), 1.6)
   }
 
   // ── Build skeleton & mesh

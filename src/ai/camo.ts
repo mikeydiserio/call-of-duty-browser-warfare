@@ -146,10 +146,10 @@ export function createSoldierAtlas(): SoldierAtlas {
   const at = (t: number) => [(t % COLS) * TILE_PX, Math.floor(t / COLS) * TILE_PX] as const
 
   let [ox, oy] = at(TILE.MULTICAM)
-  blobCamo(ctx, ox, oy, '#a69573', ['#7a7650', '#6b563b', '#c3b48e', '#4c4a35'], rnd, 26, 20)
+  blobCamo(ctx, ox, oy, '#bcab84', ['#938c62', '#82694a', '#d4c7a2', '#625d43'], rnd, 20, 19)
   weave(ctx, ox, oy, rnd)
   ;[ox, oy] = at(TILE.KHAKI)
-  plain(ctx, ox, oy, '#9a8760', rnd)
+  plain(ctx, ox, oy, '#a8946a', rnd)
   ;[ox, oy] = at(TILE.OLIVE)
   blobCamo(ctx, ox, oy, '#565c3b', ['#434a2c', '#6b6a47', '#363a24'], rnd, 22, 22)
   weave(ctx, ox, oy, rnd)
@@ -170,7 +170,7 @@ export function createSoldierAtlas(): SoldierAtlas {
   ;[ox, oy] = at(TILE.BLACK_NYLON)
   plain(ctx, ox, oy, '#262624', rnd, 0.22)
   ;[ox, oy] = at(TILE.COYOTE)
-  plain(ctx, ox, oy, '#8d7650', rnd, 0.2)
+  plain(ctx, ox, oy, '#9c8459', rnd, 0.2)
   ;[ox, oy] = at(TILE.RANGER)
   plain(ctx, ox, oy, '#4c5233', rnd, 0.18)
   ;[ox, oy] = at(TILE.KNIT)
