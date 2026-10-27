@@ -29,6 +29,7 @@ export type MatKey =
   | 'barrelBlue'
   | 'barrelRed'
   | 'generator'
+  | 'panel'
   | 'tank'
   | 'sandbag'
   | 'chain'
@@ -97,6 +98,7 @@ export function createMaterials(): Mats {
     barrelBlue: def(pbrMat(T.barrelBlue), 1.8, 0.9, 'metal'),
     barrelRed: def(pbrMat(T.barrelRed), 1.8, 0.9, 'metal'),
     generator: def(pbrMat(T.generator), 1.5, 1.5, 'metal'),
+    panel: def(pbrMat(T.panel), 1.5, 1.5, 'metal'),
     tank: def(pbrMat(T.tank), 2, 2, 'metal'),
     sandbag: def(pbrMat(T.sandbag, { metal: 0, color: 0xc4b59a }), 1, 1, 'sand'),
     chain: def(pbrMat(T.chain, { side: true, alpha: true }), 0.25, 0.25, 'metal'),

@@ -191,7 +191,7 @@ export function buildTower(c: Ctx) {
   crate(c, -2.2, f1, 4.5, -0.2, 0.9)
   barrelCluster(c, -3.0, -0.4, 2, ['barrelRust', 'barrelBlue'], 0, f1)
   // F2 cover: steel cabinet + spool
-  b.box('generator', 1.4, 1.5, 0.7, 2.8, f2 + 0.75, 2.9)
+  b.box('panel', 1.4, 1.5, 0.7, 2.8, f2 + 0.75, 2.9)
   b.box('black', 1.2, 0.3, 0.05, 2.8, f2 + 1.1, 2.54, { col: false })
   b.cyl('woodDark', 0.55, 0.55, 0.7, 'z', -2.6, f2 + 0.55, 2.4, 14)
   b.cyl('black', 0.3, 0.3, 0.72, 'z', -2.6, f2 + 0.55, 2.4, 10, { col: false })
@@ -205,7 +205,7 @@ export function buildTower(c: Ctx) {
   palletStack(c, -1.8, 2.6, 0.3, 4, f0)
   barrelCluster(c, 2.8, 2.6, 3, ['barrelBlue', 'barrelRust'], 0, f0)
   // electrical box on a column
-  b.box('pipeGrey', 0.6, 0.8, 0.25, 0, f0 + 1.4, -H + 0.3, { col: false })
+  b.box('panel', 0.6, 0.8, 0.25, 0, f0 + 1.4, -H + 0.3, { col: false })
   b.wire(new Vector3(0, f0 + 1.0, -H + 0.3), new Vector3(0, f0 + 0.05, -H + 2.5), 0.05, 0.02)
   // cable runs up a column
   b.rod('black', new Vector3(H - 0.2, f0, -H + 0.2), new Vector3(H - 0.2, f2, -H + 0.2), 0.025, 5, { col: false })

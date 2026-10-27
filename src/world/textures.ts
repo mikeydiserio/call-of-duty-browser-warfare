@@ -640,6 +640,7 @@ export interface TextureSet {
   barrelBlue: PBR
   barrelRed: PBR
   generator: PBR
+  panel: PBR
   tank: PBR
   sandbag: PBR
   chain: PBR
@@ -789,11 +790,23 @@ export function getTextures(): TextureSet {
       paint: [170, 138, 56],
       paint2: [190, 156, 78],
       under: [76, 68, 60],
-      wear: 0.5,
+      wear: 0.26,
       rustAmt: 0.6,
       streak: [8, 4],
       nStr: 3,
       offset: 0.19,
+    }),
+    panel: painted({
+      size: 512,
+      paint: [104, 112, 104],
+      paint2: [124, 130, 120],
+      under: [70, 66, 62],
+      wear: 0.12,
+      rustAmt: 0.45,
+      streak: [10, 2],
+      nStr: 2.5,
+      offset: 0.58,
+      gloss: 0.15,
     }),
     tank: painted({
       size: 512,

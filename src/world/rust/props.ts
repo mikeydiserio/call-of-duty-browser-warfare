@@ -252,7 +252,7 @@ function tumbleweedGeometry(seed: number) {
     s = (s * 16807) % 2147483647
     return s / 2147483647 - 0.5
   }
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < 30; i++) {
     const pts: Vector3[] = []
     const ax = new Vector3(rnd(), rnd(), rnd()).normalize()
     const start = new Vector3(rnd(), rnd(), rnd()).normalize()
@@ -261,7 +261,7 @@ function tumbleweedGeometry(seed: number) {
       v.multiplyScalar(0.32 + rnd() * 0.1)
       pts.push(v)
     }
-    const t = new TubeGeometry(new CatmullRomCurve3(pts), 10, 0.006, 3, false)
+    const t = new TubeGeometry(new CatmullRomCurve3(pts), 8, 0.009, 3, false)
     geos.push(t)
   }
   const g = mergeGeometries(geos, false)!

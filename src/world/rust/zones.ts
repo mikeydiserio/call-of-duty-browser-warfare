@@ -401,13 +401,13 @@ function comms(c: Ctx) {
     b.frame(-2.2, 0, 0, Math.PI / 2, () => wallWithOpenings(c, 'concrete', -1.6, 1.6, 0, 0.15, 0.18, 2.6, []))
     corrugated(b, 'tin', 5.0, 3.8, 0, 2.85, 0, { rx: -Math.PI / 2 + 0.07, col: 'metal' })
     // radio racks inside
-    b.box('pipeGrey', 1.6, 1.8, 0.5, -1.0, 1.05, -1.2)
+    b.box('panel', 1.6, 1.8, 0.5, -1.0, 1.05, -1.2)
     b.box('black', 1.4, 0.6, 0.05, -1.0, 1.4, -0.93, { col: false })
     b.box('lamp', 0.05, 0.05, 0.02, -0.6, 1.6, -0.9, { col: false })
     b.box('woodDark', 1.6, 0.06, 0.8, 1.1, 0.85, -1.1)
     b.box('black', 0.5, 0.35, 0.4, 1.0, 1.06, -1.1, { col: false })
     // AC unit / dish on the wall
-    b.box('pipeGrey', 0.8, 0.5, 0.5, 2.0, 2.2, 1.85, { col: false })
+    b.box('panel', 0.8, 0.5, 0.5, 2.0, 2.2, 1.85, { col: false })
   })
   // lattice mast (triangular)
   const mx = -3.0
@@ -608,7 +608,7 @@ function generatorUnit(c: Ctx, x: number, z: number, ry: number) {
     b.cyl('rustDark', 0.1, 0.1, 1.2, 'y', -1.4, 2.7, 0.4, 10, { col: false })
     b.cyl('rustDark', 0.13, 0.1, 0.15, 'y', -1.4, 3.3, 0.4, 10, { col: false })
     // control panel
-    b.box('pipeGrey', 0.5, 0.6, 0.2, -1.6, 1.6, -0.95, { col: false })
+    b.box('panel', 0.5, 0.6, 0.2, -1.6, 1.6, -0.95, { col: false })
     b.box('lamp', 0.05, 0.05, 0.02, -1.5, 1.75, -1.06, { col: false })
   })
 }
@@ -621,8 +621,8 @@ function generators(c: Ctx) {
   // transformer
   b.frame(25.5, groundY(25.5, 30.4), 30.4, 0, () => {
     b.box('concrete', 2.6, 0.3, 2.0, 0, 0.1, 0)
-    b.box('pipeGrey', 1.6, 1.8, 1.2, 0, 1.15, 0)
-    for (let k = -3; k <= 3; k++) b.box('pipeGrey', 0.04, 1.3, 1.4, k * 0.22, 1.0, 0, { col: false })
+    b.box('panel', 1.6, 1.8, 1.2, 0, 1.15, 0)
+    for (let k = -3; k <= 3; k++) b.box('panel', 0.04, 1.3, 1.4, k * 0.22, 1.0, 0, { col: false })
     for (const x of [-0.5, 0, 0.5]) {
       b.cyl('black', 0.07, 0.09, 0.6, 'y', x, 2.35, 0, 8, { col: false })
     }
@@ -681,14 +681,14 @@ function controlRoom(c: Ctx) {
     b.box('concrete', 0.15, p, D, -W / 2 + 0.075, H + 0.25 + p / 2, 0)
     b.box('concrete', 0.15, p, D - 1.5, W / 2 - 0.075, H + 0.25 + p / 2, -0.75)
     // roof clutter: AC units, vents
-    b.box('pipeGrey', 1.4, 0.8, 1.0, -2.2, H + 0.65, 0.8)
+    b.box('panel', 1.4, 0.8, 1.0, -2.2, H + 0.65, 0.8)
     b.box('black', 1.2, 0.05, 0.8, -2.2, H + 1.06, 0.8, { col: false })
     b.cyl('rustDark', 0.18, 0.18, 0.6, 'y', 1.8, H + 0.55, -1.4, 10)
     // door frame steel
     b.box('rustDark', 1.1, 0.1, 0.3, -W / 2 + 1.7, 2.2, -D / 2 + t / 2, { col: false })
     // interior: consoles along the south wall, desk, cabinets
-    b.box('pipeGrey', 3.6, 1.0, 0.7, -1.4, 0.5, D / 2 - t - 0.35)
-    b.box('pipeGrey', 3.6, 0.7, 0.3, -1.4, 1.35, D / 2 - t - 0.2, { rx: -0.3 })
+    b.box('panel', 3.6, 1.0, 0.7, -1.4, 0.5, D / 2 - t - 0.35)
+    b.box('panel', 3.6, 0.7, 0.3, -1.4, 1.35, D / 2 - t - 0.2, { rx: -0.3 })
     for (let i = 0; i < 4; i++) {
       b.box('black', 0.6, 0.4, 0.04, -2.8 + i * 0.95, 1.4, D / 2 - t - 0.37, { col: false, rx: -0.3 })
       b.box('lamp', 0.04, 0.04, 0.02, -2.6 + i * 0.95, 1.05, D / 2 - t - 0.71, { col: false })
@@ -697,7 +697,7 @@ function controlRoom(c: Ctx) {
     for (const [lx, lz] of [[1.0, -0.6], [2.6, -0.6], [1.0, 0.2], [2.6, 0.2]] as [number, number][]) b.box('rustDark', 0.05, 0.75, 0.05, lx, 0.375, lz, { col: false })
     b.colBox(1.8, 0.4, -0.2, 1.8, 0.8, 0.9, 'wood')
     b.box('black', 0.5, 0.35, 0.4, 1.6, 0.95, -0.3, { col: false })
-    for (let i = 0; i < 3; i++) b.box('pipeGrey', 0.5, 1.4, 0.6, W / 2 - t - 0.3, 0.7, -2.0 + i * 0.6)
+    for (let i = 0; i < 3; i++) b.box('panel', 0.5, 1.4, 0.6, W / 2 - t - 0.3, 0.7, -2.0 + i * 0.6)
     b.box('generator', 0.9, 2.0, 0.4, -W / 2 + t + 0.2, 1.0, 0.8)
     // chair
     b.box('black', 0.5, 0.08, 0.5, 2.0, 0.48, 0.6, { col: false })
@@ -747,7 +747,7 @@ function maintenance(c: Ctx) {
     b.box('woodDark', 0.8, 0.08, 3.6, -D / 2 + 0.6, 0.92, -1.5)
     for (const zz of [-3.2, 0.2]) for (const xx of [-D / 2 + 0.3, -D / 2 + 0.9]) b.box('rustDark', 0.06, 0.9, 0.06, xx, 0.45, zz, { col: false })
     b.colBox(-D / 2 + 0.6, 0.48, -1.5, 0.8, 0.96, 3.6, 'wood')
-    b.box('pipeGrey', 0.3, 0.2, 0.4, -D / 2 + 0.6, 1.06, -2.4, { col: false })
+    b.box('panel', 0.3, 0.2, 0.4, -D / 2 + 0.6, 1.06, -2.4, { col: false })
     b.box('rust', 0.5, 0.35, 0.3, -D / 2 + 0.55, 1.13, -0.6, { col: false })
     // tool shelves
     for (let k = 0; k < 4; k++) b.box('rustDark', 0.5, 0.04, 2.2, -D / 2 + 0.35, 0.4 + k * 0.55, 2.4, { col: false })
@@ -808,7 +808,7 @@ function pickup(c: Ctx, x: number, z: number, ry: number) {
     b.box('rustDark', 0.06, 0.4, W - 0.2, 2.68, 0.9, 0, { col: false })
     b.box('rustDark', 0.16, 0.18, W + 0.1, 2.75, 0.55, 0, { col: false })
     b.box('rustDark', 0.12, 0.16, W + 0.05, -2.62, 0.6, 0, { col: false })
-    for (const sz of [-0.68, 0.68]) b.box('lamp', 0.03, 0.1, 0.18, 2.7, 1.05, sz, { col: false })
+    for (const sz of [-0.68, 0.68]) b.box('black', 0.03, 0.1, 0.18, 2.7, 1.05, sz, { col: false })
     // bed
     b.box('pipeGrey', 2.1, 0.06, W, -1.58, 0.75, 0, { col: false })
     for (const sz of [-1, 1]) b.box('pipeGrey', 2.1, 0.5, 0.06, -1.58, 1.0, sz * (W / 2 - 0.03), { col: false })
