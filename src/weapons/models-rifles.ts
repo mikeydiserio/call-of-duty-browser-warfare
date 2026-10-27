@@ -189,14 +189,14 @@ export function buildACR(): ModelSpec {
   screwHead(b, 'body', 'steel', 0.0152, 0.103, 0.024, 0.0026)
   screwHead(b, 'body', 'steel', 0.0152, 0.103, 0.052, 0.0026)
   b.add('body', 'metal', prof([[0.012, 0.108], [0.064, 0.108], [0.058, 0.128, 0.004], [0.018, 0.128, 0.004]], 0.02, { r: 0.002, bevel: 0.001 }))
-  b.add('body', 'blued', lathe([[0.0, 0.0], [0.0176, 0.0], [0.0186, 0.006], [0.0186, 0.11], [0.0176, 0.116], [0.0, 0.116]].map(([r, f]) => [r!, f!] as [number, number]), 0, SY, 28).translate(0, 0, 0.0))
+  b.add('body', 'blued', tube(0.0186, 0.0172, 0.0, 0.116, 0, SY, 28)) // hollow body: ADS looks straight through it
   b.add('body', 'blued', tube(0.0205, 0.0172, -0.004, 0.012, 0, SY, 28)) // rear bell
   b.add('body', 'blued', tube(0.0205, 0.0172, 0.104, 0.12, 0, SY, 28)) // front bell
   b.add('body', 'blued', pin('y', 0.0092, 0.014, 0, SY + 0.0235, 0.06, 18)) // elevation turret
   b.add('body', 'blued', pin('x', 0.0092, 0.014, 0.0235, SY, 0.06, 18)) // windage turret
   for (let i = 0; i < 12; i++) b.add('body', 'void', box(-0.0006, 0.0006, SY + 0.018, SY + 0.029, 0.0089, 0.0095).rotateY((i / 12) * Math.PI * 2).translate(0, 0, -0.06)) // knurl
-  b.add('body', 'lens', cyl(0.0172, 0.0172, 0.0, 0.0008, 0, SY, 28))
-  b.add('body', 'lens', cyl(0.0172, 0.0172, 0.1152, 0.116, 0, SY, 28))
+  b.add('body', 'glass', cyl(0.0172, 0.0172, 0.0, 0.0008, 0, SY, 28))
+  b.add('body', 'glass', cyl(0.0172, 0.0172, 0.1152, 0.116, 0, SY, 28))
   b.add('body', 'dot', new SphereDot(0, SY, -0.112))
   // ── Magazine (polymer PMAG-style)
   const magC = (t: number): [number, number] => [0.1 + 0.026 * t * t, 0.0 - 0.17 * t]
@@ -217,7 +217,7 @@ export function buildACR(): ModelSpec {
     eject: [0.018, 0.068, -0.045],
     ejectDir: [1, 0.45, 0.35],
     sight: [0, SY, -0.06],
-    relief: 0.3,
+    relief: 0.18,
     hipPos: [0.12, -0.205, -0.43],
     hipRot: [0.02, 0.1, 0.06],
     rh: { p: [0.027, -0.045, 0.058], r: [-0.2, 0, -1.5708], grip: [0.78, 0.45, 0.86, 0.88, 0.86] },
@@ -403,8 +403,8 @@ export function buildM4A1(): ModelSpec {
   // ── Folding rear BUIS (aperture on the sight line)
   b.add('body', 'metal', rbox(-0.075, -0.035, 0.0985, 0.106, 0.026, 0, 0.002, 0.0006))
   screwHead(b, 'body', 'steel', 0.0132, 0.102, -0.055, 0.0026)
-  b.add('body', 'blued', prof([[-0.062, 0.106], [-0.05, 0.106], [-0.052, 0.14, 0.003], [-0.06, 0.14, 0.003]], 0.017, { r: 0.002, bevel: 0.0006 }))
-  b.add('body', 'void', cyl(0.0019, 0.0019, -0.063, -0.051, 0, SY, 12))
+  b.add('body', 'blued', prof([[-0.062, 0.106], [-0.05, 0.106], [-0.0505, SY - 0.006], [-0.0615, SY - 0.006]], 0.012, { r: 0.002, bevel: 0.0006 }))
+  b.add('body', 'blued', tube(0.0068, 0.0038, -0.0605, -0.0525, 0, SY, 20)) // open aperture ring
   b.add('body', 'blued', prof([[-0.064, 0.106], [-0.048, 0.106], [-0.05, 0.142, 0.002], [-0.062, 0.142, 0.002]], 0.0022, { x: 0.0105, r: 0.0015, bevel: 0.0004 }))
   b.add('body', 'blued', prof([[-0.064, 0.106], [-0.048, 0.106], [-0.05, 0.142, 0.002], [-0.062, 0.142, 0.002]], 0.0022, { x: -0.0105, r: 0.0015, bevel: 0.0004 }))
   b.add('body', 'steel', pin('x', 0.004, 0.005, 0.0145, 0.116, -0.056, 12))
@@ -429,7 +429,7 @@ export function buildM4A1(): ModelSpec {
     eject: [0.018, 0.07, -0.045],
     ejectDir: [1, 0.45, 0.35],
     sight: [0, SY, 0.056],
-    relief: 0.25,
+    relief: 0.2,
     hipPos: [0.12, -0.205, -0.43],
     hipRot: [0.02, 0.1, 0.06],
     rh: { p: [0.027, -0.045, 0.06], r: [-0.2, 0, -1.5708], grip: [0.78, 0.45, 0.86, 0.88, 0.86] },
@@ -452,7 +452,7 @@ export function buildM4A1(): ModelSpec {
 export function buildAK47(): ModelSpec {
   const b = new Builder()
   const BY = 0.065
-  const SY = 0.112
+  const SY = 0.118 // clears the upper handguard (top 0.115)
   // ── Receiver
   const rx = 0.0158
   b.add('body', 'blued', xsec(halfSec([[rx - 0.002, 0.0], [rx, 0.003], [rx, 0.07]]).concat(), -0.15, 0.172, 0.001, 0.0015))
@@ -520,8 +520,10 @@ export function buildAK47(): ModelSpec {
   b.add('body', 'blued', prof([[0.172, 0.07], [0.172, 0.096, 0.004], [0.232, 0.1, 0.004], [0.244, 0.088], [0.244, 0.07]], 0.03, { r: 0.002, bevel: 0.001 }))
   b.add('body', 'blued', prof([[0.17, 0.097], [0.218, 0.1], [0.22, 0.106], [0.17, 0.104]], 0.019, { r: 0.0015, bevel: 0.0005 })) // leaf
   b.add('body', 'blued', prof([[0.198, 0.104], [0.212, 0.104], [0.212, 0.108], [0.198, 0.108]], 0.022, { r: 0.0012, bevel: 0.0004 })) // slider
-  b.add('body', 'blued', rbox(0.2, 0.206, 0.104, SY + 0.004, 0.006, -0.0055, 0.0008, 0.0003))
-  b.add('body', 'blued', rbox(0.2, 0.206, 0.104, SY + 0.004, 0.006, 0.0055, 0.0008, 0.0003))
+  // U notch: base below the sight line, ears level with the post tip
+  b.add('body', 'blued', rbox(0.2, 0.206, 0.104, SY - 0.0045, 0.017, 0, 0.0008, 0.0003))
+  b.add('body', 'blued', rbox(0.2, 0.206, 0.104, SY + 0.0005, 0.006, -0.0055, 0.0008, 0.0003))
+  b.add('body', 'blued', rbox(0.2, 0.206, 0.104, SY + 0.0005, 0.006, 0.0055, 0.0008, 0.0003))
   // ── 30-round steel magazine: strong curve, ribs, floorplate
   const magC = (t: number): [number, number] => [0.08 + 0.13 * Math.pow(t, 1.7), 0.0 - 0.215 * t + 0.03 * t * t]
   b.add('mag', 'blued', prof(strip(magC, (t) => 0.066 - 0.006 * t, 14), 0.0262, { r: 0.002, round: 0.003 }))
@@ -617,8 +619,11 @@ export function buildUMP45(): ModelSpec {
   b.add('body', 'blued', rbox(0.3125, 0.3155, 0.104, SY, 0.0026, 0, 0.0005, 0.0002))
   // ── Rear drum diopter
   b.add('body', 'poly', prof([[-0.15, 0.096], [-0.1, 0.096], [-0.104, 0.108, 0.004], [-0.146, 0.108, 0.004]], 0.03, { r: 0.003, bevel: 0.0012 }))
-  b.add('body', 'blued', pin('x', 0.0125, 0.026, 0, SY, -0.124, 22))
-  b.add('body', 'void', pin('z', 0.0018, 0.0255, 0, SY, -0.124, 10))
+  // drum split around an open aperture ring so the front post shows through
+  b.add('body', 'blued', pin('x', 0.0125, 0.007, -0.0095, SY, -0.124, 22))
+  b.add('body', 'blued', pin('x', 0.0125, 0.007, 0.0095, SY, -0.124, 22))
+  b.add('body', 'blued', rbox(-0.13, -0.118, 0.106, SY - 0.0058, 0.012, 0, 0.001, 0.0004))
+  b.add('body', 'blued', tube(0.0062, 0.0038, -0.13, -0.118, 0, SY, 20))
   b.add('body', 'blued', prof([[-0.136, 0.104], [-0.112, 0.104], [-0.114, SY + 0.016, 0.002], [-0.134, SY + 0.016, 0.002]], 0.0025, { x: 0.0145, r: 0.0015, bevel: 0.0004 }))
   b.add('body', 'blued', prof([[-0.136, 0.104], [-0.112, 0.104], [-0.114, SY + 0.016, 0.002], [-0.134, SY + 0.016, 0.002]], 0.0025, { x: -0.0145, r: 0.0015, bevel: 0.0004 }))
   // ── Barrel + thread protector

@@ -302,4 +302,4 @@ export function rankSvg(level: number, cls = ''): string {
 
 // ─── Brand wordmark ────────────────────────────────────────────────────────
 
-export const WORDMARK = `<div class="wordmark"><span class="wm-a">MODERN</span><span class="wm-b">WARFARE</span></div>`
+export const WORDMARK = `<div class="wordmark"><span class="wm-pre">MIKEY D PRESENTS</span><span class="wm-a">BROWSER</span><span class="wm-b">WARFARE</span></div>`

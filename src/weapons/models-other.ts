@@ -215,10 +215,13 @@ export function buildUSP(): ModelSpec {
   b.add('slide', 'blued', rbox(-0.018, 0.036, 0.05, 0.064, 0.02, 0, 0.002, 0.0006)) // barrel hood in the port
   b.add('slide', 'steel', prof([[-0.032, 0.054], [-0.012, 0.054], [-0.012, 0.059], [-0.03, 0.059]], 0.0014, { x: 0.0126, r: 0.0008, bevel: 0.0002 })) // extractor
   // sights: rear notch + two dots, front post + dot
-  b.add('slide', 'blued', prof([[-0.094, 0.064], [-0.078, 0.064], [-0.08, SY + 0.0035, 0.001], [-0.093, SY + 0.0035, 0.001]], 0.018, { r: 0.0008, bevel: 0.0004 }))
-  b.add('slide', 'void', box(-0.095, -0.077, SY - 0.004, SY + 0.004, -0.0018, 0.0018))
-  b.add('slide', 'chrome', pin('z', 0.0011, 0.0006, -0.0052, SY - 0.0005, -0.0939, 8))
-  b.add('slide', 'chrome', pin('z', 0.0011, 0.0006, 0.0052, SY - 0.0005, -0.0939, 8))
+  // rear: base + two ears leaving an open notch, ear tops level with the front post
+  b.add('slide', 'blued', prof([[-0.094, 0.064], [-0.078, 0.064], [-0.0795, SY - 0.0035, 0.001], [-0.0925, SY - 0.0035, 0.001]], 0.018, { r: 0.0008, bevel: 0.0004 }))
+  for (const s of [1, -1]) {
+    b.add('slide', 'blued', prof([[-0.094, SY - 0.004], [-0.079, SY - 0.004], [-0.08, SY + 0.0005, 0.001], [-0.093, SY + 0.0005, 0.001]], 0.0068, { x: s * 0.0056, r: 0.0008, bevel: 0.0003 }))
+  }
+  b.add('slide', 'chrome', pin('z', 0.0011, 0.0006, -0.0052, SY - 0.0018, -0.0939, 8))
+  b.add('slide', 'chrome', pin('z', 0.0011, 0.0006, 0.0052, SY - 0.0018, -0.0939, 8))
   b.add('slide', 'blued', prof([[0.094, 0.065], [0.104, 0.065], [0.103, SY, 0.001], [0.096, SY, 0.001]], 0.0032, { r: 0.0008, bevel: 0.0003 }))
   b.add('slide', 'chrome', pin('z', 0.0011, 0.0006, 0, SY - 0.0028, 0.0935, 8))
   // muzzle end: barrel + recoil spring guide
@@ -292,8 +295,11 @@ export function buildDeagle(): ModelSpec {
   }
   b.add('slide', 'void', box(-0.04, 0.02, 0.058, 0.084, 0.015, 0.0158)) // ejection port
   b.add('slide', 'steel', rbox(-0.038, 0.018, 0.062, 0.082, 0.026, 0, 0.002, 0.0006))
-  b.add('slide', 'blued', prof([[-0.124, 0.09], [-0.106, 0.09], [-0.108, SY + 0.003, 0.001], [-0.122, SY + 0.003, 0.001]], 0.022, { r: 0.0008, bevel: 0.0004 })) // rear sight
-  b.add('slide', 'void', box(-0.125, -0.105, SY - 0.006, SY + 0.004, -0.0022, 0.0022))
+  // rear sight: base + two ears leaving an open notch
+  b.add('slide', 'blued', prof([[-0.124, 0.09], [-0.106, 0.09], [-0.1065, SY - 0.0045, 0.001], [-0.1235, SY - 0.0045, 0.001]], 0.022, { r: 0.0008, bevel: 0.0004 }))
+  for (const s of [1, -1]) {
+    b.add('slide', 'blued', prof([[-0.124, SY - 0.005], [-0.106, SY - 0.005], [-0.108, SY + 0.0005, 0.001], [-0.122, SY + 0.0005, 0.001]], 0.0086, { x: s * 0.0067, r: 0.0008, bevel: 0.0003 }))
+  }
   // ambi safeties on the slide
   for (const s of [1, -1]) {
     b.add('slide', 'blued', pin('x', 0.0062, 0.004, s * 0.0174, 0.076, -0.106, 14))
