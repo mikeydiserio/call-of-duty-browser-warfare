@@ -5,7 +5,7 @@
  */
 import { Group, type Scene, Vector3 } from 'three'
 import { yawFromDirection } from '../../core/math'
-import type { Callout, MapData, SpawnPoint, Team } from '../../core/types'
+import type { Callout, MapData, ObjectivePoint, SpawnPoint, Team } from '../../core/types'
 import { MapBuilder } from '../builder'
 import type { CollisionWorld } from '../collision'
 import { createMaterials } from '../materials'
@@ -14,6 +14,7 @@ import { drawMinimap } from './minimap'
 import { type Ctx, Instancer, registerPrototypes } from './props'
 import { buildDecals, buildTerrain, type DarkSpot, type Patch, type Track } from './terrain'
 import { buildTower, TOWER } from './tower'
+import { BOMB_SITES, BOMB_SPAWN, buildObjectives, DOM_FLAGS, SD_ATTACKERS_FIRST } from './objectives'
 import { BIG_PIPE, buildScatter, buildZones, ZONES } from './zones'
 
 const V = (x: number, y: number, z: number) => new Vector3(x, y, z)
@@ -79,6 +80,7 @@ export function buildRustMap(scene: Scene, collision: CollisionWorld): MapData {
   buildDecals(root, TRACKS, OIL, SOIL)
   buildTower(c)
   buildZones(c)
+  buildObjectives(c, root)
   buildScatter(c)
   buildBackdrop(root, b)
 
@@ -148,7 +150,18 @@ export function buildRustMap(scene: Scene, collision: CollisionWorld): MapData {
   const el = Math.PI * (25 / 180)
   const toSun = V(-Math.cos(az) * Math.cos(el), Math.sin(el), Math.sin(az) * Math.cos(el))
 
-  const minimap = drawMinimap(BOUNDS, c.fp, TRACKS, [BIG_PIPE])
+  // ── objectives (y from the built collision; cast from just above the floor so the tower deck is skipped) ──
+  // The prop sits on the centre, so sample the floor a step to the side of it.
+  const objective = (d: (typeof DOM_FLAGS)[number], side: number): ObjectivePoint => {
+    const y = collision.groundHeight(d.x + side, d.z, d.y + 1.0, 3)
+    return { id: d.id, position: V(d.x, Number.isFinite(y) ? y : d.y, d.z), radius: d.radius }
+  }
+  const domFlags = DOM_FLAGS.map((d) => objective(d, 0.9))
+  const bombSites = BOMB_SITES.map((d) => objective(d, 1.8))
+  const by = collision.groundHeight(BOMB_SPAWN.x, BOMB_SPAWN.z, 30, 60)
+  const bombSpawn = V(BOMB_SPAWN.x, Number.isFinite(by) ? by + 0.05 : 0.1, BOMB_SPAWN.z)
+
+  const minimap = drawMinimap(BOUNDS, c.fp, TRACKS, [BIG_PIPE], { flags: domFlags, sites: bombSites })
 
   const menuCameraPath = [
     { position: V(-27, 1.4, 17), target: V(-4, 5.5, 2) }, // low along the big pipe toward the tower
@@ -175,6 +188,10 @@ export function buildRustMap(scene: Scene, collision: CollisionWorld): MapData {
     root,
     bounds: { ...BOUNDS },
     spawns,
+    domFlags,
+    bombSites,
+    bombSpawn,
+    sdAttackersFirst: SD_ATTACKERS_FIRST,
     ladders: c.ladders,
     nav: [],
     callouts,

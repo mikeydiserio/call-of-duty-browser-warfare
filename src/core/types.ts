@@ -168,9 +168,15 @@ export interface Callout {
 }
 
 export interface SpawnPoint {
+  /**
+   * Team base / 'any'. In Search & Destroy the bases are sides: the base nearest bombSpawn is the
+   * attack side (used by whichever team is attacking), the other base the defend side.
+   */
   team: Team | 'any'
   position: Vector3
   yaw: number
+  /** Restrict this spawn to these game modes (omit = every mode). */
+  modes?: GameModeId[]
 }
 
 export interface Environment {
@@ -204,7 +210,82 @@ export interface MapData {
   minimap: HTMLCanvasElement
   /** Cinematic menu camera path (positions + look targets), looped. */
   menuCameraPath: { position: Vector3; target: Vector3 }[]
+  /** Domination flags A/B/C (empty if the map has none yet). */
+  domFlags: ObjectivePoint[]
+  /** Search & Destroy bomb sites A/B, defended by the team not attacking (empty if none yet). */
+  bombSites: ObjectivePoint[]
+  /** Where the attackers' bomb starts in S&D (near the attackers' base spawns). */
+  bombSpawn: Vector3 | null
+  /** Team that attacks in S&D round 1 (default: the team whose base is nearest bombSpawn). */
+  sdAttackersFirst?: Team
 }
+
+// ─── Game modes / lobby ─────────────────────────────────────────────────────
+
+export type GameModeId = 'tdm' | 'ffa' | 'dom' | 'sd'
+
+export const GAME_MODE_NAMES: Record<GameModeId, string> = {
+  tdm: 'Team Deathmatch',
+  ffa: 'Free-for-All',
+  dom: 'Domination',
+  sd: 'Search & Destroy',
+}
+
+export type ObjectiveId = 'A' | 'B' | 'C'
+
+/** A capture point (Domination flag) or bomb site placed by the map. */
+export interface ObjectivePoint {
+  id: ObjectiveId
+  position: Vector3
+  radius: number
+}
+
+/** Live Domination flag state, owned by the game mode. */
+export interface ObjectiveState extends ObjectivePoint {
+  owner: Team | null
+  /** Team currently capturing (null if nobody or contested). */
+  capturingTeam: Team | null
+  /** Capture progress 0..1 towards capturingTeam. */
+  progress: number
+  contested: boolean
+  /** Team the current `progress` belongs to (kept while contested/decaying; capturingTeam is null then). */
+  progressTeam: Team | null
+}
+
+/** Live Search & Destroy bomb state, owned by the game mode. */
+export interface BombState {
+  attackers: Team
+  carrier: Actor | null
+  /** World position when dropped/planted (feet of the carrier otherwise). */
+  position: Vector3
+  planted: boolean
+  site: ObjectiveId | null
+  /** Seconds until detonation once planted. */
+  fuseLeft: number
+  /** 0..1 progress of an in-progress plant or defuse (0 when idle). */
+  plantProgress: number
+  defuseProgress: number
+  /** Net-friendly mirrors of the actors involved (actor ids, null when none). */
+  carrierId: number | null
+  plantingId: number | null
+  defusingId: number | null
+}
+
+/** Lobby / custom-game settings for one match. */
+export interface MatchSettings {
+  mode: GameModeId
+  mapId: string
+  /** Total bots added to fill the lobby (split across teams in team modes). */
+  botCount: number
+  /** 0..1 bot skill. */
+  botDifficulty: number
+  /** Kills (tdm/ffa), points (dom) or round wins (sd) to win. */
+  scoreLimit: number
+  /** Seconds per match (tdm/ffa/dom) or per round (sd). */
+  timeLimit: number
+}
+
+export type NetRole = 'offline' | 'host' | 'client'
 
 // ─── Input ──────────────────────────────────────────────────────────────────
 
@@ -228,6 +309,8 @@ export interface InputState {
   fragHeld: boolean
   meleePressed: boolean // V / E
   usePressed: boolean // F
+  /** F held this frame (plant/defuse). Optional so synthetic input states need not set it. */
+  useHeld?: boolean
   scoreboard: boolean // Tab held
   pausePressed: boolean // Esc / P
   killstreakPressed: boolean // 4

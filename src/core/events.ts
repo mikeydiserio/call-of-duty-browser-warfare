@@ -1,5 +1,5 @@
 import type { Vector3 } from 'three'
-import type { Actor, DamageInfo, Surface, Team, WeaponId } from './types'
+import type { Actor, DamageInfo, GameModeId, ObjectiveId, Surface, Team, WeaponId } from './types'
 
 /** Every cross-system notification. Payload vectors are owned by the emitter — clone if you keep them. */
 export interface GameEvents {
@@ -35,6 +35,20 @@ export interface GameEvents {
   'match:phase': { phase: MatchPhase; winner?: Team | 'draw' }
   'match:announce': { text: string; sub?: string; voice?: string }
   'ui:menu': { open: boolean }
+  // ── Objective modes ──
+  /** Domination flag state changed (owner, capture progress, contested). Read live state from game.mode.objectives. */
+  'objective:state': { id: ObjectiveId }
+  'objective:captured': { id: ObjectiveId; team: Team; by: Actor[] }
+  'bomb:pickup': { actor: Actor }
+  'bomb:dropped': { position: Vector3 }
+  'bomb:planted': { actor: Actor; site: ObjectiveId; position: Vector3 }
+  'bomb:defused': { actor: Actor; site: ObjectiveId }
+  'bomb:exploded': { site: ObjectiveId; position: Vector3 }
+  /** Round-based modes (S&D). */
+  'round:phase': { round: number; phase: 'start' | 'end'; winner?: Team | 'draw'; attackers: Team }
+  // ── Lobby / network ──
+  'lobby:changed': { mode: GameModeId }
+  'net:status': { role: 'offline' | 'host' | 'client'; connected: boolean; message?: string }
 }
 
 export type MatchPhase = 'menu' | 'loading' | 'intro' | 'playing' | 'ended'
