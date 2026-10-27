@@ -122,7 +122,7 @@ export class UI implements UiCtx {
     g.render.effects.menu = 0
     try {
       if (start) start()
-      else g.startMatch(g.loadout, defaultMatch('tdm'))
+      else g.startMatch(g.loadout, { ...defaultMatch('tdm'), mapId: g.match.mapId })
     } catch (err) {
       this.loading.hideNow()
       throw err

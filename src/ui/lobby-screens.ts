@@ -6,6 +6,7 @@ import { clamp, el, fmtTime, hash01, setClass } from './dom'
 import { emblemSvg, rankSvg } from './icons'
 import { MODE_SHORT, modeTagline } from './modes'
 import { keyHints, MenuList, type Screen, type UiCtx } from './screen'
+import { getMapOption, MAP_OPTIONS } from '../world/maps'
 
 const MAX_TOTAL = 12
 const MODES: GameModeId[] = ['tdm', 'ffa', 'dom', 'sd']
@@ -221,7 +222,7 @@ export class BrowserScreen implements Screen {
     const g = this.ctx.game
     this.busy = true
     g.lobby
-      .host({ ...defaultMatch(g.match.mode), botDifficulty: g.match.botDifficulty }, true)
+      .host({ ...defaultMatch(g.match.mode), mapId: g.match.mapId, botDifficulty: g.match.botDifficulty }, true)
       .then(() => this.ctx.push('lobby'))
       .catch((err: unknown) => this.ctx.popup('UNABLE TO HOST', err instanceof Error ? err.message : String(err)))
       .finally(() => (this.busy = false))
@@ -288,6 +289,7 @@ export class LobbyScreen implements Screen {
   private mapCanvas: HTMLCanvasElement
   private modeName: HTMLElement
   private modeTag: HTMLElement
+  private mapLabel: HTMLElement
   private rows: SettingRow[] = []
   private rowIdx = 0
   private focus: 'menu' | 'settings' = 'menu'
@@ -342,7 +344,7 @@ export class LobbyScreen implements Screen {
     const tag = el('div', 'map-tag', frame)
     this.modeName = el('span', '', tag)
     const mt = el('div', 'lb-mapline', this.setPanel)
-    el('span', 'lb-map', mt, 'RUST')
+    this.mapLabel = el('span', 'lb-map', mt, 'RUST')
     this.modeTag = el('span', 'lb-tagline', mt)
     const rowsEl = el('div', 'lb-rows', this.setPanel)
     this.buildRows(rowsEl)
@@ -396,7 +398,16 @@ export class LobbyScreen implements Screen {
           const i = MODES.indexOf(s.mode)
           const mode = MODES[(i + dir + MODES.length) % MODES.length]!
           const d = defaultMatch(mode)
-          return { ...d, botDifficulty: s.botDifficulty, botCount: Math.min(d.botCount, MAX_TOTAL - this.humans) }
+          return { ...d, mapId: s.mapId, botDifficulty: s.botDifficulty, botCount: Math.min(d.botCount, MAX_TOTAL - this.humans) }
+        },
+      },
+      {
+        label: () => 'MAP',
+        value: () => getMapOption(this.settings.mapId).name.toUpperCase(),
+        adjust: (s, dir) => {
+          const i = MAP_OPTIONS.findIndex((map) => map.id === s.mapId)
+          const next = MAP_OPTIONS[(i + dir + MAP_OPTIONS.length) % MAP_OPTIONS.length]!
+          return { ...s, mapId: next.id }
         },
       },
       {
@@ -506,6 +517,11 @@ export class LobbyScreen implements Screen {
     const lob = g.lobby.lobby
     if (!lob) return
     const s = lob.settings
+    const running = !!extras(g.lobby).inProgress
+    if (!running && g.mode.phase === 'menu') {
+      g.match = { ...s }
+      if (g.map.id !== s.mapId) g.setMap(s.mapId)
+    }
     const sig = JSON.stringify([lob.code, s, lob.players, g.lobby.role, this.focus, this.rowIdx, g.lobby.localName, extras(g.lobby).inProgress])
     if (sig === this.sig) return
     this.sig = sig
@@ -529,12 +545,12 @@ export class LobbyScreen implements Screen {
     // settings
     this.modeName.textContent = MODE_SHORT[s.mode]
     this.modeTag.textContent = modeTagline(s)
+    this.mapLabel.textContent = getMapOption(s.mapId).name.toUpperCase()
     this.rows.forEach((r, i) => {
       r.labelEl!.textContent = r.label()
       r.valEl!.textContent = r.value()
       setClass(r.el!, 'sel', this.isHost && this.focus === 'settings' && i === this.rowIdx)
     })
-    const running = !!extras(g.lobby).inProgress
     this.setNote.textContent = running
       ? 'MATCH IN PROGRESS — YOU WILL DROP IN ON THE NEXT SPAWN'
       : this.isHost

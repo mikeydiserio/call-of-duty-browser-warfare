@@ -1,4 +1,4 @@
-import { Vector3 } from 'three'
+import { Vector3, type Material, type Mesh } from 'three'
 import { BotManager } from '../ai/bots'
 import { AudioEngine } from '../audio/audio'
 import { Combat } from '../game/combat'
@@ -8,7 +8,7 @@ import { Effects } from '../render/fx/effects'
 import { GameRenderer } from '../render/renderer'
 import { UI } from '../ui/ui'
 import { CollisionWorld } from '../world/collision'
-import { buildRustMap } from '../world/rust/map'
+import { buildMap, getMapOption } from '../world/maps'
 import { createLobby, type NetHooks } from '../net'
 import type { LobbyService } from '../net/lobby'
 import { CONFIG } from './config'
@@ -39,7 +39,7 @@ export class Game {
   readonly input: Input
   readonly render: GameRenderer
   readonly collision = new CollisionWorld()
-  readonly map: MapData
+  map: MapData
   readonly combat: Combat
   readonly mode: GameMode
   readonly player: Player
@@ -85,7 +85,7 @@ export class Game {
 
     this.render = new GameRenderer(container)
     this.input = new Input(this.render.renderer.domElement)
-    this.map = buildRustMap(this.render.scene, this.collision)
+    this.map = buildMap('rust', this.render.scene, this.collision)
     if (!this.collision.bvh) this.collision.build()
     this.render.setEnvironment(this.map.environment)
 
@@ -115,12 +115,15 @@ export class Game {
 
   /** Called by the UI when the player hits "Start match". Must be inside a user gesture. */
   startMatch(loadout: Loadout, match: MatchSettings = this.match) {
+    const mapId = getMapOption(match.mapId).id
+    if (mapId !== match.mapId) match = { ...match, mapId }
     this.loadout = loadout
     this.match = match
     saveJSON(LOADOUT_KEY, loadout)
     this.audio.unlock()
     this.combat.clearGrenades()
     this.bots.clear()
+    this.setMap(match.mapId)
     this.player.setLoadout(loadout)
     this.mode.id = match.mode
     this.bots.difficulty = match.botDifficulty
@@ -132,6 +135,29 @@ export class Game {
     this.mode.begin()
     this.input.enabled = true
     this.input.lock()
+  }
+
+  /** Replace the current map and its collision world. Safe to call while in a menu. */
+  setMap(mapId: string): MapData {
+    const selected = getMapOption(mapId)
+    if (this.map.id === selected.id) return this.map
+
+    const oldRoot = this.map.root
+    this.render.scene.remove(oldRoot)
+    const materials = new Set<Material>()
+    oldRoot.traverse((object) => {
+      const drawable = object as Mesh
+      if (!drawable.isMesh) return
+      drawable.geometry.dispose()
+      for (const material of Array.isArray(drawable.material) ? drawable.material : [drawable.material]) materials.add(material)
+    })
+    for (const material of materials) material.dispose()
+
+    this.collision.clear()
+    this.map = buildMap(selected.id, this.render.scene, this.collision)
+    this.render.setEnvironment(this.map.environment)
+    this.menuCamT = 0
+    return this.map
   }
 
   /**

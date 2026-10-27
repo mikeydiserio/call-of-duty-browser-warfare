@@ -83,6 +83,17 @@ export class CollisionWorld {
     g.dispose()
   }
 
+  /** Drop the current static level before another map is built. */
+  clear() {
+    for (const g of this.pending) g.dispose()
+    this.pending = []
+    this.geometry?.dispose()
+    this.geometry = null
+    this.bvh = null
+    this.surfaceAttr = null
+    this.debugMesh = null
+  }
+
   build() {
     if (this.pending.length === 0) throw new Error('CollisionWorld.build(): no geometry registered')
     const merged = mergeGeometries(this.pending, false)

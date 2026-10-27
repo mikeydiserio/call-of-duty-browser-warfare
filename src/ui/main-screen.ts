@@ -3,9 +3,7 @@ import { levelForXp, loadXp, rankName, xpForLevel, RANK_NAMES } from './data'
 import { el } from './dom'
 import { emblemSvg, rankSvg, WORDMARK } from './icons'
 import { keyHints, MenuList, type Screen, type UiCtx } from './screen'
-
-const MAP_BLURB =
-  'A corroded oil yard baking under the afternoon sun on the border. Rusted pipelines, stacked containers and a steel tower that owns the middle of the map. Expect brutal close-quarters and long lanes between the derrick and the gate.'
+import { getMapOption } from '../world/maps'
 
 export class MainScreen implements Screen {
   readonly id = 'main' as const
@@ -19,6 +17,7 @@ export class MainScreen implements Screen {
   private cardName: HTMLElement
   private mapName: HTMLElement
   private mapLoc: HTMLElement
+  private mapDesc: HTMLElement
 
   constructor(private ctx: UiCtx) {
     const root = this.el
@@ -39,7 +38,11 @@ export class MainScreen implements Screen {
           tip: 'Online play is not configured on this build (no Supabase keys). Use Private Match to play against bots.',
         },
         { label: 'PRIVATE MATCH', sub: 'CUSTOM GAME VS BOTS', action: () => this.privateMatch() },
-        { label: 'QUICK PLAY', sub: 'TEAM DEATHMATCH 6v6', action: () => ctx.play() },
+        {
+          label: 'QUICK PLAY',
+          sub: 'TEAM DEATHMATCH 6v6',
+          action: () => ctx.play(() => ctx.game.startMatch(ctx.game.loadout, { ...defaultMatch('tdm'), mapId: ctx.game.match.mapId })),
+        },
         { label: 'CREATE A CLASS', action: () => ctx.push('class') },
         { label: 'OPTIONS', action: () => ctx.push('options') },
         { label: 'CONTROLS', action: () => ctx.push('controls') },
@@ -71,7 +74,7 @@ export class MainScreen implements Screen {
     this.mapName = el('div', 'map-name', right)
     this.mapLoc = el('div', 'map-loc', right)
     el('div', 'map-sub', right, 'TEAM DEATHMATCH — 6v6')
-    el('p', 'map-desc', right, MAP_BLURB)
+    this.mapDesc = el('p', 'map-desc', right)
     const teams = el('div', 'map-teams', right)
     const a = el('div', 'mt', teams)
     a.innerHTML = `${emblemSvg('tf141')}<span>TASK FORCE 141</span>`
@@ -88,8 +91,10 @@ export class MainScreen implements Screen {
 
   enter() {
     const g = this.ctx.game
-    this.mapName.textContent = g.map.displayName.toUpperCase()
-    this.mapLoc.textContent = g.map.location.toUpperCase()
+    const mapInfo = getMapOption(g.map.id)
+    this.mapName.textContent = mapInfo.name.toUpperCase()
+    this.mapLoc.textContent = mapInfo.location.toUpperCase()
+    this.mapDesc.textContent = mapInfo.description
     this.cardName.textContent = g.player.name.toUpperCase()
     const xp = loadXp()
     const lv = levelForXp(xp)
@@ -114,7 +119,7 @@ export class MainScreen implements Screen {
     const g = this.ctx.game
     this.busy = true
     g.lobby
-      .host({ ...defaultMatch(g.match.mode), botDifficulty: g.match.botDifficulty }, false)
+      .host({ ...defaultMatch(g.match.mode), mapId: g.match.mapId, botDifficulty: g.match.botDifficulty }, false)
       .then(() => this.ctx.push('lobby'))
       .catch((err: unknown) => this.ctx.popup('UNABLE TO CREATE GAME', err instanceof Error ? err.message : String(err)))
       .finally(() => (this.busy = false))
