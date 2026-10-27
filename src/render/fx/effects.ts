@@ -617,31 +617,31 @@ export class Effects {
     // n points back toward the shooter; the bullet travelled along -n.
     _u.copy(n).negate()
     // Blood mist: exit spray (along the shot) + smaller entry puff
-    const mist = Math.ceil(5 * detail)
+    const mist = Math.ceil(8 * detail)
     for (let i = 0; i < mist; i++) {
-      const exit = i < mist - 1
-      this.sprayDir(_t, exit ? _u : n, 0.55)
-      const sp = exit ? rand(1.2, 3) : rand(0.5, 1.2)
+      const exit = i < mist - 2
+      this.sprayDir(_t, exit ? _u : n, 0.6)
+      const sp = exit ? rand(0.8, 3.2) : rand(0.4, 1.2)
       s.reset().pos(p)
       s.vx = _t.x * sp
-      s.vy = _t.y * sp + 0.2
+      s.vy = _t.y * sp + 0.15
       s.vz = _t.z * sp
-      s.drag = 4
-      s.grav = 0.6
-      s.life = rand(0.35, 0.7)
-      s.s0 = rand(0.06, 0.12)
-      s.s1 = rand(0.45, 0.8)
+      s.drag = 4.5
+      s.grav = 0.5
+      s.life = rand(0.4, 0.8)
+      s.s0 = rand(0.18, 0.32)
+      s.s1 = rand(0.55, 1)
       s.rot = Math.random() * 6.28
       s.rv = rand(-1, 1)
       s.frame = (Math.random() * 4) | 0
       const L = this.lit
-      s.r0 = 0.32 * L
-      s.g0 = 0.015 * L
-      s.b0 = 0.012 * L
-      s.r1 = 0.22 * L
-      s.g1 = 0.03 * L
-      s.b1 = 0.025 * L
-      s.a0 = 0.9
+      s.r0 = 0.2 * L
+      s.g0 = 0.012 * L
+      s.b0 = 0.01 * L
+      s.r1 = 0.16 * L
+      s.g1 = 0.035 * L
+      s.b1 = 0.03 * L
+      s.a0 = rand(0.55, 0.8)
       s.a1 = 0
       s.fadeIn = 0.02
       this.billboards.emit(s)
@@ -703,11 +703,11 @@ export class Effects {
     s.vz = _d.z * speed
     s.maxDist = len - start
     s.life = (len - start) / speed + 0.03
-    s.trail = atMe ? 0.03 : 0.018
-    s.width = atMe ? 0.022 : 0.016
+    s.trail = atMe ? 0.016 : 0.014
+    s.width = atMe ? 0.012 : 0.014
     s.kind = STREAK_GLOW
     s.add = 1
-    const k = atMe ? 2.2 : 1
+    const k = atMe ? 1.5 : 1
     s.r0 = s.r1 = 7 * k
     s.g0 = s.g1 = 4.6 * k
     s.b0 = s.b1 = 2.2 * k
@@ -885,23 +885,23 @@ export class Effects {
     s.s1 = 3.5
     s.kind = KIND_STAR
     s.seed = Math.random()
-    s.r0 = s.r1 = 8
-    s.g0 = s.g1 = 5.5
-    s.b0 = s.b1 = 3
+    s.r0 = s.r1 = 4
+    s.g0 = s.g1 = 2.6
+    s.b0 = s.b1 = 1.2
     s.a0 = 1
     s.a1 = 0
     s.fadeIn = 0.01
     this.billboards.emit(s)
     s.reset().pos(pos)
     s.y += 0.6
-    s.life = 0.35
-    s.s0 = 4.5
-    s.s1 = 7
+    s.life = 0.3
+    s.s0 = 3
+    s.s1 = 5
     s.kind = KIND_GLOW
     s.add = 1
-    s.r0 = 5
-    s.g0 = 2.4
-    s.b0 = 0.8
+    s.r0 = 2.2
+    s.g0 = 0.9
+    s.b0 = 0.25
     s.r1 = 1.5
     s.g1 = 0.4
     s.b1 = 0.1
@@ -934,8 +934,8 @@ export class Effects {
       s.heat0 = rand(0.95, 1.15)
       s.heat1 = 0
       s.add = 1
-      s.r0 = s.g0 = s.b0 = 1.6
-      s.r1 = s.g1 = s.b1 = 0.8
+      s.r0 = s.g0 = s.b0 = 1.1
+      s.r1 = s.g1 = s.b1 = 0.5
       s.a0 = 1
       s.a1 = 0.6
       s.fadeIn = 0.02
@@ -943,7 +943,7 @@ export class Effects {
     }
 
     // 3. dark smoke column, rising and drifting with the wind
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 16; i++) {
       this.sprayDir(_t, _n, 0.9)
       const sp = rand(1, 4)
       s.reset().pos(pos)
@@ -955,8 +955,8 @@ export class Effects {
       s.grav = -0.25
       s.delay = rand(0.05, 0.35)
       s.life = rand(4, 7.5)
-      s.s0 = rand(1, 1.6)
-      s.s1 = rand(4.5, 7.5)
+      s.s0 = rand(0.9, 1.4)
+      s.s1 = rand(3.5, 5.5)
       s.rot = Math.random() * 6.28
       s.rv = rand(-0.25, 0.25)
       s.frame = (Math.random() * 4) | 0
@@ -1078,12 +1078,12 @@ export class Effects {
     if (ground) this.decals.add(ground.point, ground.normal, pick(DECAL.scorch), rand(3.2, 4.2))
 
     // 8. light + camera response
-    this.flashLight(_w.copy(pos).setY(pos.y + 1.2), 900, 0.45, 30, 0xffa050)
+    this.flashLight(_w.copy(pos).setY(pos.y + 1.2), 260, 0.4, 26, 0xff9040)
     const camPos = r.camera.position
     const d = camPos.distanceTo(pos)
     r.effects.shake = Math.min(1.5, r.effects.shake + Math.max(0, 1.25 - d / 22))
-    if (d < 9 && g.collision.lineOfSight(camPos, _w.copy(pos).setY(pos.y + 0.5))) {
-      r.effects.flash = Math.max(r.effects.flash, (1 - d / 9) * 0.75)
+    if (d < 7 && g.collision.lineOfSight(camPos, _w.copy(pos).setY(pos.y + 0.5))) {
+      r.effects.flash = Math.max(r.effects.flash, (1 - d / 7) * 0.6)
     }
   }
 }

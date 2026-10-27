@@ -123,13 +123,12 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
     g = g * (1.0 - red * 0.55) + vec3(0.34, 0.0, 0.0) * red;
 
     float v = texture2D(tBlood, uv).r;
-    float thr = 1.0 - uDamage * 1.08;
-    float m = smoothstep(thr, thr + 0.07, v) * smoothstep(0.12, 0.55, r);
-    float shade = 0.55 + 0.45 * smoothstep(thr, thr + 0.45, v);
-    vec3 blood = vec3(0.30, 0.012, 0.010) * shade;
-    // wet highlight on the thick parts
-    blood += vec3(0.22, 0.05, 0.04) * smoothstep(0.80, 1.0, v) * m;
-    g = mix(g, blood, m * 0.88);
+    float thr = 1.0 - uDamage * 0.95;
+    float m = smoothstep(thr, thr + 0.16, v) * smoothstep(0.2, 0.6, r);
+    float thick = smoothstep(thr, thr + 0.5, v);
+    // translucent thin smear → dark opaque clots
+    vec3 blood = mix(vec3(0.30, 0.02, 0.018), vec3(0.11, 0.004, 0.004), thick);
+    g = mix(g, g * vec3(0.42, 0.05, 0.045) + blood * 0.65, m * (0.6 + 0.38 * thick));
   }
 
   // ---- death: desaturate, darken, red wash ------------------------------------------
@@ -137,7 +136,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
     float gl = dot(g, vec3(0.3, 0.59, 0.11));
     g = mix(g, vec3(gl) * vec3(1.0, 0.82, 0.80), uDead * 0.9);
     g *= 1.0 - uDead * (0.38 + 0.4 * vig);
-    g = mix(g, g * vec3(1.35, 0.30, 0.26), uDead * 0.55);
+    g = mix(g, g * vec3(1.3, 0.42, 0.38), uDead * 0.35);
   }
 
   // ---- menu darken -----------------------------------------------------------------
@@ -188,74 +187,105 @@ export class ScreenFXEffect extends Effect {
   }
 }
 
-/** Greyscale "height field" of blood blobs/drips — thresholded in the shader as damage grows. */
+/**
+ * Greyscale blood "height field": smeared, domain-warped noise concentrated at the screen
+ * edges (thick in the corners), plus fine spatter and a few short drips from the top. The
+ * shader thresholds it lower as damage grows so the blood creeps in from the edges.
+ */
 export function createBloodTexture(): CanvasTexture {
-  const W = 1280
-  const H = 720
-  const cv = document.createElement('canvas')
-  cv.width = W
-  cv.height = H
-  const ctx = cv.getContext('2d')!
-  ctx.fillStyle = '#000'
-  ctx.fillRect(0, 0, W, H)
-  ctx.globalCompositeOperation = 'lighten'
+  const W = 640
+  const H = 360
   let seed = 1337
   const rnd = () => {
     seed = (seed * 1664525 + 1013904223) >>> 0
     return seed / 4294967296
   }
-  const blob = (x: number, y: number, rad: number, v: number) => {
-    const grd = ctx.createRadialGradient(x, y, 0, x, y, rad)
-    const a = Math.round(v * 255)
-    grd.addColorStop(0, `rgb(${a},${a},${a})`)
-    grd.addColorStop(0.18, `rgb(${Math.round(a * 0.93)},${Math.round(a * 0.93)},${Math.round(a * 0.93)})`)
-    grd.addColorStop(1, 'rgb(0,0,0)')
-    ctx.fillStyle = grd
+  // value-noise lattice
+  const G = 64
+  const lat = new Float32Array(G * G)
+  for (let i = 0; i < lat.length; i++) lat[i] = rnd()
+  const noise = (x: number, y: number) => {
+    const xi = Math.floor(x)
+    const yi = Math.floor(y)
+    let fx = x - xi
+    let fy = y - yi
+    fx = fx * fx * (3 - 2 * fx)
+    fy = fy * fy * (3 - 2 * fy)
+    const a = lat[(((yi % G) + G) % G) * G + (((xi % G) + G) % G)]!
+    const b = lat[(((yi % G) + G) % G) * G + ((((xi + 1) % G) + G) % G)]!
+    const c = lat[((((yi + 1) % G) + G) % G) * G + (((xi % G) + G) % G)]!
+    const d = lat[((((yi + 1) % G) + G) % G) * G + ((((xi + 1) % G) + G) % G)]!
+    return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy
+  }
+  const fbm = (x: number, y: number) => {
+    let s = 0
+    let amp = 0.5
+    for (let o = 0; o < 5; o++) {
+      s += amp * noise(x, y)
+      x = x * 2.03 + 7.1
+      y = y * 2.03 + 3.7
+      amp *= 0.5
+    }
+    return s
+  }
+  const field = new Float32Array(W * H)
+  const aspect = W / H
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const u = x / W - 0.5
+      const v = y / H - 0.5
+      // elliptical edge distance: 0 centre → ~1 at the frame edge, >1 in corners
+      const r = Math.sqrt(u * u * 4 * (aspect > 1 ? 1 : aspect) + v * v * 4)
+      const px = (x / H) * 3.2
+      const py = (y / H) * 3.2
+      const wx = fbm(px + 11.3, py + 2.1) - 0.5
+      const wy = fbm(px + 4.7, py + 19.2) - 0.5
+      const n = fbm(px + wx * 2.2, py + wy * 2.2)
+      const edge = Math.min(1, Math.max(0, (r - 0.42) / 0.7))
+      field[y * W + x] = Math.min(1, Math.max(0, edge * 0.95 + (n - 0.5) * 1.15 - 0.08))
+    }
+  }
+  const cv = document.createElement('canvas')
+  cv.width = W
+  cv.height = H
+  const ctx = cv.getContext('2d')!
+  const img = ctx.createImageData(W, H)
+  for (let i = 0; i < W * H; i++) {
+    const c = Math.round(field[i]! * 255)
+    img.data[i * 4] = c
+    img.data[i * 4 + 1] = c
+    img.data[i * 4 + 2] = c
+    img.data[i * 4 + 3] = 255
+  }
+  ctx.putImageData(img, 0, 0)
+  // fine spatter in the edge band + short drips from the top edge
+  ctx.globalCompositeOperation = 'lighten'
+  for (let i = 0; i < 140; i++) {
+    const a = rnd() * Math.PI * 2
+    const d = 0.74 + rnd() * 0.45
+    const x = W / 2 + Math.cos(a) * d * W * 0.5
+    const y = H / 2 + Math.sin(a) * d * H * 0.5
+    const c = Math.round((0.55 + rnd() * 0.4) * 255)
+    ctx.fillStyle = `rgb(${c},${c},${c})`
     ctx.beginPath()
-    ctx.arc(x, y, rad, 0, Math.PI * 2)
+    ctx.arc(x, y, 0.6 + rnd() * rnd() * 3.2, 0, Math.PI * 2)
     ctx.fill()
   }
-  const splats = 34
-  for (let i = 0; i < splats; i++) {
-    const ang = rnd() * Math.PI * 2
-    const rx = 0.36 + rnd() * 0.2
-    const ry = 0.34 + rnd() * 0.18
-    const cx = W * (0.5 + Math.cos(ang) * rx)
-    const cy = H * (0.5 + Math.sin(ang) * ry)
-    const base = 0.55 + rnd() * 0.45
-    const R = 26 + rnd() * 88
-    // irregular main body: several offset circles
-    const parts = 4 + Math.floor(rnd() * 5)
-    for (let p = 0; p < parts; p++) {
-      const a = rnd() * Math.PI * 2
-      const d = rnd() * R * 0.55
-      blob(cx + Math.cos(a) * d, cy + Math.sin(a) * d, R * (0.35 + rnd() * 0.55), base * (0.85 + rnd() * 0.15))
-    }
-    // spatter droplets thrown outward
-    const drops = 5 + Math.floor(rnd() * 9)
-    for (let p = 0; p < drops; p++) {
-      const a = rnd() * Math.PI * 2
-      const d = R * (0.9 + rnd() * 2.2)
-      blob(cx + Math.cos(a) * d, cy + Math.sin(a) * d, 3 + rnd() * 10, base * (0.7 + rnd() * 0.3))
-    }
-    // drips running down
-    if (rnd() < 0.7) {
-      const len = 50 + rnd() * 190
-      const w = 3 + rnd() * 8
-      const x = cx + (rnd() - 0.5) * R * 0.8
-      const grd = ctx.createLinearGradient(0, cy, 0, cy + len)
-      const a = Math.round(base * 0.95 * 255)
-      grd.addColorStop(0, `rgb(${a},${a},${a})`)
-      grd.addColorStop(1, `rgb(${Math.round(a * 0.45)},${Math.round(a * 0.45)},${Math.round(a * 0.45)})`)
-      ctx.strokeStyle = grd
-      ctx.lineWidth = w
-      ctx.lineCap = 'round'
-      ctx.beginPath()
-      ctx.moveTo(x, cy)
-      ctx.lineTo(x + (rnd() - 0.5) * 8, cy + len)
-      ctx.stroke()
-      blob(x, cy + len, w * 1.1, base * 0.6)
-    }
+  for (let i = 0; i < 14; i++) {
+    const x = rnd() * W
+    const top = rnd() * H * 0.08
+    const len = H * (0.05 + rnd() * 0.12)
+    const c = Math.round((0.6 + rnd() * 0.3) * 255)
+    const g = ctx.createLinearGradient(0, top, 0, top + len)
+    g.addColorStop(0, `rgb(${c},${c},${c})`)
+    g.addColorStop(1, 'rgb(0,0,0)')
+    ctx.strokeStyle = g
+    ctx.lineWidth = 1 + rnd() * 2.5
+    ctx.lineCap = 'round'
+    ctx.beginPath()
+    ctx.moveTo(x, top)
+    ctx.lineTo(x + (rnd() - 0.5) * 3, top + len)
+    ctx.stroke()
   }
   const tex = new CanvasTexture(cv)
   tex.colorSpace = NoColorSpace

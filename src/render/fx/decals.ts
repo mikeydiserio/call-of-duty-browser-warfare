@@ -400,16 +400,27 @@ function drawAtlas(): HTMLCanvasElement {
         [0.7, 'rgba(35,28,22,0.45)'],
         [1, 'rgba(40,32,25,0)'],
       ])
-      ctx.strokeStyle = 'rgba(10,8,6,0.6)'
-      for (let i = 0; i < 40; i++) {
+      ctx.filter = 'blur(3px)'
+      ctx.strokeStyle = 'rgba(10,8,6,0.32)'
+      for (let i = 0; i < 26; i++) {
         const a = rnd() * Math.PI * 2
         const r0 = 30 + rnd() * 30
-        const r1 = r0 + 30 + rnd() * 60
-        ctx.lineWidth = 1 + rnd() * 4
+        const r1 = r0 + 20 + rnd() * 45
+        ctx.lineWidth = 3 + rnd() * 7
         ctx.beginPath()
         ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0)
         ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1)
         ctx.stroke()
+      }
+      ctx.filter = 'none'
+      // mottled soot
+      for (let i = 0; i < 160; i++) {
+        const a = rnd() * Math.PI * 2
+        const d = Math.sqrt(rnd()) * 105
+        ctx.fillStyle = `rgba(12,10,8,${0.08 + rnd() * 0.18})`
+        ctx.beginPath()
+        ctx.arc(Math.cos(a) * d, Math.sin(a) * d, 1 + rnd() * 5, 0, Math.PI * 2)
+        ctx.fill()
       }
     })
   }

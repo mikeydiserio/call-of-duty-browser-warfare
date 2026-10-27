@@ -252,7 +252,8 @@ export class GameRenderer implements RenderContext {
 
     // Sky dome uniforms (main view + env bake share the same palette).
     const elevation = Math.max(this.sunToward.y, 0.12)
-    const bounce = ground.clone().multiplyScalar((env.sunIntensity * elevation * 0.8) / Math.PI + 0.15)
+    // sunlit sand bounce seen in reflections below the horizon (too dark = metal reads black)
+    const bounce = ground.clone().multiplyScalar((env.sunIntensity * elevation * 1.5) / Math.PI + 0.45)
     const su: SkyUniforms = {
       sunDir: this.sunToward,
       sunCol,
