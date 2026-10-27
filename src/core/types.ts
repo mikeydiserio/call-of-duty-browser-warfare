@@ -169,8 +169,8 @@ export interface Callout {
 
 export interface SpawnPoint {
   /**
-   * Team base / 'any'. In Search & Destroy the labels mean sides, not teams:
-   * 'tf141' spawns are the ATTACKING side (near bombSpawn), 'opfor' the DEFENDING side (near bombSites).
+   * Team base / 'any'. In Search & Destroy the bases are sides: the base nearest bombSpawn is the
+   * attack side (used by whichever team is attacking), the other base the defend side.
    */
   team: Team | 'any'
   position: Vector3
@@ -212,10 +212,12 @@ export interface MapData {
   menuCameraPath: { position: Vector3; target: Vector3 }[]
   /** Domination flags A/B/C (empty if the map has none yet). */
   domFlags: ObjectivePoint[]
-  /** Search & Destroy bomb sites A/B, defended by `sdDefenders` (empty if none yet). */
+  /** Search & Destroy bomb sites A/B, defended by the team not attacking (empty if none yet). */
   bombSites: ObjectivePoint[]
   /** Where the attackers' bomb starts in S&D (near the attackers' base spawns). */
   bombSpawn: Vector3 | null
+  /** Team that attacks in S&D round 1 (default: the team whose base is nearest bombSpawn). */
+  sdAttackersFirst?: Team
 }
 
 // ─── Game modes / lobby ─────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import { Color, type Mesh, type MeshStandardMaterial } from 'three'
 import type { Actor, DamageInfo, ObjectiveId, ObjectivePoint, ObjectiveState, SpawnPoint, Team } from '../../core/types'
 import { otherTeam } from '../../core/types'
 import { ModeRules, type NetRules } from './rules'
@@ -14,6 +15,9 @@ const TICK_SECONDS = 5
 const CAPTURE_POINTS = 150
 const ATTACK_DEFEND_POINTS = 50
 const FLAG_RADIUS = 4.5
+/** Flag cloth tint relative to the local player (MW2: blue friendly, red enemy). */
+const FRIENDLY_TINT = new Color(0x6fb8ff)
+const ENEMY_TINT = new Color(0xff5a48)
 
 /**
  * Domination (MW2): three flags; stand in a flag's radius to capture it.
@@ -24,6 +28,8 @@ export class DominationRules extends ModeRules {
   private tickT = 0
   /** Flags whose discrete state (owner/capturing/contested) changed this frame. */
   private lastSig = new Map<ObjectiveId, string>()
+  /** Original (neutral) cloth colour per flag prop. */
+  private neutralTint = new Map<ObjectiveId, Color>()
 
   intro() {
     return { text: 'DOMINATION', sub: `Capture and hold the flags. First to ${this.mode.settings.scoreLimit} points wins.`, voice: 'dom_intro' }
@@ -39,6 +45,17 @@ export class DominationRules extends ModeRules {
     )
     this.tickT = TICK_SECONDS
     this.lastSig.clear()
+    for (const f of this.mode.objectives) this.tintFlag(f)
+  }
+
+  /** Tint the map's flag cloth (map.root 'domflag_X' → 'cloth') for the current owner. */
+  private tintFlag(f: ObjectiveState) {
+    const cloth = this.game.map.root.getObjectByName(`domflag_${f.id}`)?.getObjectByName('cloth') as Mesh | undefined
+    const mat = cloth?.material as MeshStandardMaterial | undefined
+    if (!mat?.color) return
+    let neutral = this.neutralTint.get(f.id)
+    if (!neutral) this.neutralTint.set(f.id, (neutral = mat.color.clone()))
+    mat.color.copy(!f.owner ? neutral : f.owner === this.mode.playerTeam ? FRIENDLY_TINT : ENEMY_TINT)
   }
 
   /** Fallback when the map has no flags yet: A near tf141's half, B at the centre, C near opfor's half. */
@@ -101,6 +118,7 @@ export class DominationRules extends ModeRules {
       const sig = `${f.owner}|${f.capturingTeam}|${f.contested}|${f.progressTeam}`
       if (this.lastSig.get(f.id) !== sig) {
         this.lastSig.set(f.id, sig)
+        this.tintFlag(f)
         events.emit('objective:state', { id: f.id })
       }
     }
@@ -184,5 +202,6 @@ export class DominationRules extends ModeRules {
 
   applyNetState(s: NetRules) {
     if (typeof s.tickT === 'number') this.tickT = s.tickT
+    for (const f of this.mode.objectives) this.tintFlag(f)
   }
 }

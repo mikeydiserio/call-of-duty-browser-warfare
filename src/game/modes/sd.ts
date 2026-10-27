@@ -26,13 +26,16 @@ export type RoundEndReason = 'elimination' | 'detonated' | 'defused' | 'time'
  * Search & Destroy (MW2): rounds, no respawns. Attackers carry one bomb (starts at
  * map.bombSpawn) to site A or B, plant (5 s) and defend the 45 s fuse; defenders
  * defuse (7.5 s) or run the clock. Sides swap every (scoreLimit − 1) rounds;
- * scoreLimit is round wins. Map spawn labels are sides: 'tf141' spawns = attack side.
+ * scoreLimit is round wins. Sides are the two team bases: the attack side is the base nearest
+ * map.bombSpawn (whoever attacks spawns there), the defend side is the other base.
  */
 export class SearchDestroyRules extends ModeRules {
   readonly id = 'sd' as const
   respawns = false
   /** Team attacking in round 1. */
   firstAttackers: Team = 'tf141'
+  /** Base-spawn label whose spawns the attackers use (the side the bomb starts on). */
+  attackSide: Team = 'tf141'
   roundOver = false
   roundEndIn = 0
   lastRoundWinner: Team | 'draw' | null = null
@@ -67,14 +70,20 @@ export class SearchDestroyRules extends ModeRules {
 
   begin() {
     const map = this.game.map
+    this.attackSide = map.bombSpawn ? this.nearestBase(map.bombSpawn) : 'tf141'
+    this.firstAttackers = map.sdAttackersFirst ?? this.attackSide
     this.mode.bombSites = (map.bombSites.length ? map.bombSites : this.synthesiseSites()).map((s) => ({ ...s, position: s.position.clone() }))
     this.startRound()
   }
 
+  private nearestBase(p: Vector3): Team {
+    return this.baseCentre('tf141').distanceTo(p) <= this.baseCentre('opfor').distanceTo(p) ? 'tf141' : 'opfor'
+  }
+
   /** Fallback sites: two callouts on the defenders' half, ~18 m+ apart. */
   private synthesiseSites(): ObjectivePoint[] {
-    const def = this.baseCentre('opfor')
-    const atk = this.baseCentre('tf141')
+    const def = this.baseCentre(otherTeam(this.attackSide))
+    const atk = this.baseCentre(this.attackSide)
     const flat = (a: Vector3, b: Vector3) => Math.hypot(a.x - b.x, a.z - b.z)
     const cands = this.game.map.callouts
       .filter((c) => flat(c.center, def) > c.radius + 4 && flat(c.center, def) < flat(c.center, atk))
@@ -118,8 +127,8 @@ export class SearchDestroyRules extends ModeRules {
 
   /** No map bombSpawn: the attack-side spawn nearest that side's centre (always on walkable ground). */
   private fallbackBombSpawn(): Vector3 {
-    const own = this.spawnsFor('tf141', false)
-    const c = this.baseCentre('tf141')
+    const own = this.spawnsFor(this.attackSide, false)
+    const c = this.baseCentre(this.attackSide)
     let best = own[0]?.position ?? c
     for (const s of own) if (s.position.distanceTo(c) < best.distanceTo(c)) best = s.position
     return best.clone()
@@ -127,7 +136,7 @@ export class SearchDestroyRules extends ModeRules {
 
   /** Everyone spawns on their side's base each round. */
   chooseSpawn(actor: Actor, _initial: boolean): SpawnPoint {
-    const side: Team = actor.team === this.attackers ? 'tf141' : 'opfor'
+    const side: Team = actor.team === this.attackers ? this.attackSide : otherTeam(this.attackSide)
     const base = this.spawnsFor(side, false)
     if (base.length) return this.leastRecentlyUsed(base)
     return this.bestSpawn(actor, this.allSpawns())
@@ -403,7 +412,7 @@ export class SearchDestroyRules extends ModeRules {
 
   getNetState(): NetRules {
     return {
-      firstAttackers: this.firstAttackers, roundOver: this.roundOver, roundEndIn: this.roundEndIn,
+      firstAttackers: this.firstAttackers, attackSide: this.attackSide, roundOver: this.roundOver, roundEndIn: this.roundEndIn,
       plantSite: this.plantSite, planterId: this.planterId,
       lastRoundWinner: this.lastRoundWinner, lastRoundReason: this.lastRoundReason,
     }
@@ -411,6 +420,7 @@ export class SearchDestroyRules extends ModeRules {
 
   applyNetState(s: NetRules) {
     if (s.firstAttackers === 'tf141' || s.firstAttackers === 'opfor') this.firstAttackers = s.firstAttackers
+    if (s.attackSide === 'tf141' || s.attackSide === 'opfor') this.attackSide = s.attackSide
     this.roundOver = s.roundOver === true
     this.roundEndIn = typeof s.roundEndIn === 'number' ? s.roundEndIn : 0
     this.plantSite = (s.plantSite as ObjectiveId | null) ?? null
