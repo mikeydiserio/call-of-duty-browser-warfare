@@ -209,7 +209,8 @@ export class Hud {
     for (let i = 0; i < GREN_POOL; i++) {
       const g = el('div', 'gren-ind', grRoot)
       const icon = el('div', 'gren-icon', g)
-      icon.innerHTML = `${ICON.grenadeWarn}<span class="gr-arrow"></span>`
+      icon.innerHTML = ICON.grenadeWarn
+      el('span', 'gr-arrow', g)
       this.gren.push({ el: g, icon, pos: null, born: 0, angle: 0, active: false })
     }
 
