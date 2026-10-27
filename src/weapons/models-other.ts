@@ -1,6 +1,6 @@
 /** Intervention, SPAS-12, USP .45, Desert Eagle, M67 frag, combat knife. */
-import { SphereGeometry, CylinderGeometry, TorusGeometry } from 'three'
-import { box, crossPin, cyl, flat, frameXY, halfSec, lathe, pin, prof, rbox, rod, strip, tube, xsec, Builder, type P } from './geo'
+import { SphereGeometry, CylinderGeometry, LatheGeometry, TorusGeometry, Vector2 } from 'three'
+import { box, crossPin, cyl, finish, flat, frameXY, halfSec, lathe, pin, prof, rbox, rod, strip, tube, xsec, Builder, type P } from './geo'
 import { loop, SphereDot, teeth, triggerGuard, type ModelSpec } from './models-rifles'
 import type { RigMeta } from './rig'
 
@@ -115,6 +115,30 @@ export function buildSPAS12(): ModelSpec {
   b.add('body', 'blued', lathe([[0.0, 0.17], [0.0118, 0.17], [0.0118, 0.2], [0.0108, 0.205], [0.0108, 0.59], [0.0, 0.59]], 0, BY, 20))
   b.add('body', 'blued', lathe([[0.0, 0.584], [0.0124, 0.584], [0.0124, 0.6], [0.0116, 0.604], [0.0, 0.604]], 0, BY, 20)) // choke
   b.add('body', 'void', cyl(0.0094, 0.0094, 0.6035, 0.6045, 0, BY, 16))
+  // Perforated heat shield over the top of the barrel
+  {
+    const pts = [
+      new Vector2(0.0158, 0.18),
+      new Vector2(0.0172, 0.18),
+      new Vector2(0.0172, 0.43),
+      new Vector2(0.0158, 0.43),
+      new Vector2(0.0158, 0.18),
+    ]
+    const shield = new LatheGeometry(pts, 20, -1.85, 3.7)
+    shield.rotateX(-Math.PI / 2)
+    shield.translate(0, BY, 0)
+    shield.deleteAttribute('uv')
+    b.add('body', 'metal', finish(shield, 0.6))
+    for (let i = 0; i < 11; i++) {
+      const f = 0.195 + i * 0.022
+      for (const a of [-1.15, -0.4, 0.4, 1.15]) {
+        b.add('body', 'void', pin('y', 0.0034, 0.0022, 0, 0.0167, f + (Math.abs(a) > 1 ? 0.011 : 0), 10).rotateZ(a).translate(0, BY, 0))
+      }
+    }
+    b.add('body', 'metal', xsec(halfSec([[0.0172, BY - 0.002], [0.0178, BY + 0.008], [0.0118, BY + 0.0175], [0.004, BY + 0.0185]]), 0.43, 0.442, 0.0006, 0.002)) // front clamp
+  }
+  // shell elevator visible in the loading port
+  b.add('body', 'blued', rbox(0.03, 0.14, 0.0165, 0.0195, 0.021, 0, 0.002, 0.0006))
   b.add('body', 'metal', lathe([[0.0, 0.16], [0.0118, 0.16], [0.0118, 0.555], [0.0, 0.555]], 0, TY, 20)) // mag tube
   b.add('body', 'metal', lathe([[0.0, 0.552], [0.0132, 0.552], [0.0136, 0.558], [0.0136, 0.578], [0.0124, 0.584], [0.0, 0.584]], 0, TY, 20)) // tube cap
   for (let i = 0; i < 12; i++) b.add('body', 'void', box(0.56, 0.578, 0.0132, 0.014, -0.0009, 0.0009).rotateZ((i / 12) * Math.PI * 2).translate(0, TY, 0))
@@ -157,7 +181,7 @@ export function buildSPAS12(): ModelSpec {
     relief: 0.3,
     hipPos: [0.12, -0.205, -0.43],
     hipRot: [0.02, 0.1, 0.06],
-    rh: { p: [0.032, -0.045, 0.062], r: [-0.2, 0, -1.5708], grip: [0.5, 0.45, 0.85, 0.86, 0.84] },
+    rh: { p: [0.032, -0.045, 0.062], r: [-0.2, 0, -1.5708], grip: [0.78, 0.45, 0.86, 0.88, 0.86] },
     lh: { p: [0.0, TY - 0.03, -0.32], r: [0.0, 0.0, 3.14], grip: [0.5, 0.75, 0.8, 0.8, 0.8] },
     loadHold: { p: [0.0, -0.02, -0.12], r: [0.0, 0.0, 3.14], grip: [0.5, 0.6, 0.6, 0.6, 0.6] },
     travel: 0.085,

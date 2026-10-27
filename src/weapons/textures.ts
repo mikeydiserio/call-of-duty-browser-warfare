@@ -401,13 +401,18 @@ export function makeGrenadeBody(size = 256): PBRSet {
       const v = y / size
       const i = y * size + x
       const n = N1.fbm(u, v, 5, 4)
-      const grid = Math.max(Math.abs(((u * 8) % 1) - 0.5), Math.abs(((v * 6) % 1) - 0.5))
-      const groove = grid > 0.46 ? 1 : 0
+      // M67 is a smooth steel sphere; the only marking is a thin yellow stencil band
+      const groove = 0
+      const band = Math.abs(v - 0.5) < 0.012 ? 1 : 0
       const wear = Math.max(0, (N2.fbm(u, v, 7, 3) - 0.62) * 4)
       const sh = 0.8 + n * 0.35 - groove * 0.5
       const col = [70, 78, 52]
       const metal = [120, 118, 112]
-      for (let k = 0; k < 3; k++) cd[i * 4 + k] = (col[k]! + (metal[k]! - col[k]!) * Math.min(1, wear)) * sh
+      const yellow = [190, 160, 60]
+      for (let k = 0; k < 3; k++) {
+        const c = (col[k]! + (metal[k]! - col[k]!) * Math.min(1, wear)) * sh
+        cd[i * 4 + k] = c + (yellow[k]! - c) * band * (1 - Math.min(1, wear))
+      }
       cd[i * 4 + 3] = 255
       height[i] = 1 - groove * 0.8 + n * 0.1
       rough[i] = 0.55 + wear * 0.2 + n * 0.1
