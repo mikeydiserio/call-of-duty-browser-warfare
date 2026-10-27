@@ -20,7 +20,7 @@ import {
 } from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import type { Team } from '../core/types'
-import { createSoldierAtlas, TILE } from './camo'
+import { COLS, createSoldierAtlas, MARGIN, TILE } from './camo'
 
 export const BONE_ORDER = [
   'pelvis', 'spine', 'chest', 'neck', 'head',
@@ -87,13 +87,17 @@ interface Geo {
   pos: Float32Array
   nor: Float32Array
   idx: ArrayLike<number>
+  /** Optional authored UVs (0..1 within the tile); otherwise box-projected. */
+  uv?: Float32Array
 }
 
-function fromThree(g: BufferGeometry): Geo {
+function fromThree(g: BufferGeometry, keepUV = false): Geo {
+  const uv = keepUV ? g.getAttribute('uv') : null
   return {
     pos: Float32Array.from(g.getAttribute('position').array as ArrayLike<number>),
     nor: Float32Array.from(g.getAttribute('normal').array as ArrayLike<number>),
     idx: g.index ? Array.from(g.index.array as ArrayLike<number>) : Array.from({ length: g.getAttribute('position').count }, (_, i) => i),
+    uv: uv ? Float32Array.from(uv.array as ArrayLike<number>) : undefined,
   }
 }
 
@@ -108,6 +112,88 @@ function getTemplates() {
     }
   }
   return templates
+}
+
+// ─── Sculpted head ──────────────────────────────────────────────────────────
+
+const HEAD_C = [0, 1.665, 0.002] as const
+const HEAD_S = [0.086, 0.11, 0.102] as const
+const gauss = (x: number, mu: number, sigma: number) => Math.exp(-((x - mu) * (x - mu)) / (2 * sigma * sigma))
+
+/**
+ * Head built from a sphere with its UV seam at the back (face at u = 0.5),
+ * sculpted with a brow ridge, eye sockets, cheekbones, a tapered jaw and chin.
+ * kind 'face' is the skin; 'balaclava' / 'wrap' are cloth shells with an eye
+ * slit cut out (the wrap also gets folds and a covered nose).
+ */
+function headGeo(kind: 'face' | 'balaclava' | 'wrap'): Geo {
+  const g = kind === 'face' ? new SphereGeometry(1, 32, 24, Math.PI / 2) : new SphereGeometry(1, 48, 40, Math.PI / 2)
+  const pos = g.getAttribute('position')
+  for (let i = 0; i < pos.count; i++) {
+    const ux = pos.getX(i), uy = pos.getY(i), uz = pos.getZ(i)
+    let x = ux, y = uy, z = uz
+    const front = Math.max(0, -uz)
+    // Jaw taper and chin.
+    if (uy < -0.1) {
+      const t = (-uy - 0.1) / 0.9
+      x *= 1 - 0.32 * t * t
+      z *= uz < 0 ? 1 + 0.05 * t : 1 - 0.3 * t
+    }
+    // Rounder cranium at the back.
+    if (uz > 0 && uy > -0.3) z *= 1.06
+    // Brow ridge, eye sockets, cheekbones, nose bridge.
+    z -= front ** 3 * gauss(uy, 0.27, 0.08) * 0.07
+    for (const ex of [-0.38, 0.38]) z += front * 0.075 * Math.exp(-((ux - ex) ** 2 + (uy - 0.1) ** 2) / 0.018)
+    x *= 1 + 0.06 * gauss(uy, -0.05, 0.14) * front
+    // Slightly flattened face plane.
+    if (z < -0.86) z = -0.86 - (-z - 0.86) * 0.55
+    if (kind !== 'face') {
+      // Cloth sits proud of the skin and smooths over the sockets; the nose shows through.
+      const k = kind === 'balaclava' ? 1.075 : 1.13
+      x *= k
+      y *= k * (kind === 'wrap' ? 1.02 : 1)
+      z *= k
+      z -= front ** 4 * gauss(uy, -0.12, 0.18) * gauss(ux, 0, 0.12) * 0.27
+      if (kind === 'wrap') {
+        // Wrapped folds.
+        const phi = Math.atan2(ux, -uz)
+        const f = 1 + 0.045 * Math.sin(phi * 9 + uy * 7) + 0.025 * Math.sin(phi * 4 - uy * 13)
+        x *= f
+        z *= f
+        if (uy > 0.5) y *= 1 + 0.06 * (uy - 0.5) // bunched top
+      }
+    }
+    pos.setXYZ(i, x * HEAD_S[0] + HEAD_C[0], y * HEAD_S[1] + HEAD_C[1], z * HEAD_S[2] + HEAD_C[2])
+  }
+  g.computeVertexNormals()
+  const geo = fromThree(g, true)
+  g.dispose()
+  if (kind !== 'face') {
+    // Cut the eye slit (UV band around the eyes).
+    const uv = geo.uv!
+    const half = kind === 'balaclava' ? 0.105 : 0.13
+    const [v0, v1] = kind === 'balaclava' ? [0.475, 0.6] : [0.475, 0.625]
+    const idx: number[] = []
+    const src = geo.idx
+    // Remove whole grid quads (both triangles share rows/columns) for clean, straight slit edges.
+    for (let t = 0; t < src.length; t += 3) {
+      let inside = true
+      for (let k = 0; k < 3 && inside; k++) {
+        const u = uv[src[t + k]! * 2]!
+        const v = uv[src[t + k]! * 2 + 1]!
+        if (Math.abs(u - 0.5) > half + 1e-4 || v < v0 - 1e-4 || v > v1 + 1e-4) inside = false
+      }
+      if (!inside) idx.push(src[t]!, src[t + 1]!, src[t + 2]!)
+    }
+    geo.idx = idx
+  }
+  return geo
+}
+
+let headCache: Record<'face' | 'balaclava' | 'wrap', Geo> | null = null
+function heads() {
+  if (!headCache) headCache = { face: headGeo('face'), balaclava: headGeo('balaclava'), wrap: headGeo('wrap') }
+  return headCache
 }
 
 interface Section {
@@ -306,7 +392,10 @@ class Builder {
       this.nor.push(nxv, nyv, nzv)
       const ax = Math.abs(nxv), ay = Math.abs(nyv), az = Math.abs(nzv)
       let u: number, v: number
-      if (az >= ax && az >= ay) {
+      if (g.uv) {
+        u = g.uv[i * 2]!
+        v = g.uv[i * 2 + 1]!
+      } else if (az >= ax && az >= ay) {
         u = (x - minX) * s
         v = (y - minY) * s
       } else if (ax >= ay) {
@@ -316,7 +405,7 @@ class Builder {
         u = (x - minX) * s
         v = (z - minZ) * s
       }
-      this.uv.push(tc[0] + Math.min(1, u) * tc[2], tc[1] + Math.min(1, v) * tc[3])
+      this.uv.push(tc[0] + Math.min(1, Math.max(0, u)) * tc[2], tc[1] + Math.min(1, Math.max(0, v)) * tc[3])
       // Baked AO-ish shading + dust near the ground.
       const ao = 0.76 + 0.24 * (nyv * 0.5 + 0.5)
       let r = color.r * ao, gg = color.g * ao, b = color.b * ao
@@ -357,11 +446,10 @@ class Builder {
 
 /** [uOrigin, vOrigin, uSize, vSize] of the usable area of an atlas tile. */
 function tileOrigin(tile: number): [number, number, number, number] {
-  const margin = 0.07
-  const col = tile % 4
-  const row = Math.floor(tile / 4)
-  const size = 1 - 2 * margin
-  return [(col + margin) / 4, 1 - (row + margin + size) / 4, size / 4, size / 4]
+  const col = tile % COLS
+  const row = Math.floor(tile / COLS)
+  const size = 1 - 2 * MARGIN
+  return [(col + MARGIN) / COLS, 1 - (row + MARGIN + size) / COLS, size / COLS, size / COLS]
 }
 
 // ─── Part shorthands ────────────────────────────────────────────────────────
@@ -429,6 +517,7 @@ export function buildSoldier(team: Team, rnd: () => number): SoldierRig {
 
   const skin = pick(team === 'tf141' ? SKIN_TONES.slice(0, 4) : SKIN_TONES).clone()
   const hair = pick([C(0x15110d), C(0x2a1d12), C(0x3c2a18), C(0x1a1a1a), C(0x57402a)])
+  const eyeColor = pick([CS(0.16, 0.1, 0.06), CS(0.12, 0.08, 0.05), CS(0.2, 0.26, 0.3), CS(0.22, 0.2, 0.12)])
 
   // Outfit selection.
   let topTile: number = TILE.MULTICAM
@@ -455,25 +544,31 @@ export function buildSoldier(team: Team, rnd: () => number): SoldierRig {
     gearTile = pick([TILE.COYOTE, TILE.COYOTE, TILE.RANGER, TILE.BLACK_NYLON])
     bareForearm = chance(0.3)
   } else {
+    // Militia: mixed civilian/surplus clothing, mid-value colours so it reads in shade.
     const o = rnd()
-    if (o < 0.3) {
+    if (o < 0.2) {
       topTile = TILE.OLIVE
+      pantsTile = pick([TILE.DENIM, TILE.KHAKI])
+    } else if (o < 0.35) {
+      topTile = TILE.GREY
       pantsTile = pick([TILE.DENIM, TILE.DARK])
-    } else if (o < 0.55) {
-      topTile = TILE.DARK
+    } else if (o < 0.5) {
+      topTile = TILE.TAN_SHIRT
+      pantsTile = pick([TILE.DARK, TILE.OLIVE_PLAIN])
+    } else if (o < 0.62) {
+      topTile = TILE.DENIM
       pantsTile = TILE.KHAKI
-      topColor = CS(0.9, 0.9, 0.9)
-    } else if (o < 0.75) {
+    } else if (o < 0.74) {
       topTile = TILE.URBAN
-      pantsTile = TILE.DARK
-    } else if (o < 0.9) {
+      pantsTile = pick([TILE.DARK, TILE.DENIM])
+    } else if (o < 0.88) {
       topTile = TILE.WHITE
-      topColor = pick([CS(0.62, 0.55, 0.42), CS(0.45, 0.47, 0.5), CS(0.7, 0.28, 0.24), CS(0.28, 0.32, 0.3)])
-      pantsTile = TILE.DENIM
+      topColor = pick([CS(0.75, 0.68, 0.54), CS(0.62, 0.64, 0.66), CS(0.78, 0.38, 0.32), CS(0.48, 0.55, 0.5)])
+      pantsTile = pick([TILE.DENIM, TILE.KHAKI])
       sleeveless = chance(0.35)
     } else {
-      topTile = TILE.KHAKI
-      pantsTile = TILE.OLIVE
+      topTile = TILE.OLIVE_PLAIN
+      pantsTile = TILE.KHAKI
     }
     gearTile = pick([TILE.RANGER, TILE.BLACK_NYLON, TILE.COYOTE, TILE.LEATHER])
     bareForearm = chance(0.35) || topTile === TILE.WHITE
@@ -527,29 +622,35 @@ export function buildSoldier(team: Team, rnd: () => number): SoldierRig {
   b.add(loftGeo(torsoSections, 16), mat([0, 0, 0], [1, 1, 1]), topTile, topColor, torsoChain)
   // Collar.
   b.add(loftGeo([
-    { y: 1.455, rx: 0.075, rz: 0.07 },
-    { y: 1.5, rx: 0.07, rz: 0.066 },
+    { y: 1.455, rx: 0.082, rz: 0.076 },
+    { y: 1.515, rx: 0.075, rz: 0.072 },
   ], 12), mat([0, 0, 0], [1, 1, 1]), topTile, topColor, rigid('chest'))
 
   // ── Neck
   b.add(loftGeo([
-    { y: 1.46, rx: 0.056, rz: 0.058 },
-    { y: 1.54, rx: 0.05, rz: 0.054 },
-    { y: 1.6, rx: 0.048, rz: 0.052 },
+    { y: 1.46, rx: 0.066, rz: 0.066 },
+    { y: 1.53, rx: 0.06, rz: 0.062 },
+    { y: 1.59, rx: 0.058, rz: 0.06, cz: 0.006 },
+    { y: 1.63, rx: 0.05, rz: 0.05, cz: 0.012 },
   ], 10), mat([0, 0, 0], [1, 1, 1]), TILE.SKIN, SK(), joint('head', 'chest', 1.52, 0.045), 1.8, false)
 
   // ── Head
   const headW = rigid('head')
-  b.add(T.sphere, mat([0, 1.665, 0.002], [0.09, 0.108, 0.1]), TILE.SKIN, SK(), headW, 3, false)
-  b.add(T.sphere, mat([0, 1.612, -0.012], [0.074, 0.06, 0.08]), TILE.SKIN, SK(), headW, 3, false)
-  b.add(T.box, mat([0, 1.652, -0.1], [0.018, 0.034, 0.028]), TILE.SKIN, SK(), headW, 3, false) // nose
-  b.add(T.sphere, mat([0.09, 1.66, 0.0], [0.012, 0.03, 0.02]), TILE.SKIN, SK(), headW, 3, false)
-  b.add(T.sphere, mat([-0.09, 1.66, 0.0], [0.012, 0.03, 0.02]), TILE.SKIN, SK(), headW, 3, false)
-  b.add(T.box, mat([0.034, 1.676, -0.09], [0.022, 0.009, 0.008]), TILE.BLACK_NYLON, CS(0.04, 0.03, 0.03), headW, 3, false)
-  b.add(T.box, mat([-0.034, 1.676, -0.09], [0.022, 0.009, 0.008]), TILE.BLACK_NYLON, CS(0.04, 0.03, 0.03), headW, 3, false)
-  b.add(T.box, mat([0.036, 1.69, -0.088], [0.036, 0.008, 0.012]), TILE.BLACK_NYLON, hair, headW, 3, false)
-  b.add(T.box, mat([-0.036, 1.69, -0.088], [0.036, 0.008, 0.012]), TILE.BLACK_NYLON, hair, headW, 3, false)
-  b.add(T.box, mat([0, 1.598, -0.087], [0.036, 0.008, 0.01]), TILE.SKIN, SK().clone().multiplyScalar(0.7), headW, 3, false) // mouth
+  const H = heads()
+  const fr = rnd()
+  const faceTile = team === 'tf141' ? (fr < 0.42 ? TILE.FACE_CLEAN : fr < 0.88 ? TILE.FACE_STUBBLE : TILE.FACE_BEARD) : fr < 0.15 ? TILE.FACE_CLEAN : fr < 0.55 ? TILE.FACE_STUBBLE : TILE.FACE_BEARD
+  b.add(H.face, mat([0, 0, 0], [1, 1, 1]), faceTile, SK(), headW, 1, false)
+  // Nose: bridge, tip and wings.
+  b.add(T.sphere, mat([0, 1.656, -0.09], [0.0085, 0.025, 0.011], [-0.3, 0, 0]), TILE.SKIN, SK(), headW, 3, false)
+  b.add(T.sphere, mat([0, 1.637, -0.095], [0.0085, 0.0085, 0.0095]), TILE.SKIN, SK(), headW, 3, false)
+  for (const sx of [-1, 1]) {
+    b.add(T.sphere, mat([sx * 0.0095, 1.632, -0.091], [0.0065, 0.006, 0.007]), TILE.SKIN, SK().clone().multiplyScalar(0.93), headW, 3, false)
+    // Ears.
+    b.add(T.sphere, mat([sx * 0.087, 1.662, 0.004], [0.011, 0.029, 0.019], [0, sx * 0.25, 0]), TILE.SKIN, SK().clone().multiplyScalar(0.95), headW, 3, false)
+    // Eyes: sclera + iris.
+    b.add(T.sphere, mat([sx * 0.033, 1.676, -0.083], [0.0105, 0.006, 0.008]), TILE.WHITE, CS(0.66, 0.6, 0.54), headW, 3, false)
+    b.add(T.sphere, mat([sx * 0.033, 1.6758, -0.0899], [0.0052, 0.0052, 0.0022]), TILE.BLACK_NYLON, eyeColor, headW, 3, false)
+  }
 
   // ── Headgear
   const helmetTile = pick([TILE.MULTICAM, TILE.MULTICAM, TILE.COYOTE, TILE.RANGER])
@@ -558,33 +659,33 @@ export function buildSoldier(team: Team, rnd: () => number): SoldierRig {
     if (r < 0.58) {
       headgear = 'helmet'
       const hc = helmetTile === TILE.MULTICAM ? CS(1, 1, 1) : vary(CS(0.95, 0.95, 0.9), 0.06)
-      b.add(T.dome, mat([0, 1.688, 0.012], [0.121, 0.11, 0.142], [0.14, 0, 0]), helmetTile, hc, headW, 2.5, false)
+      b.add(T.dome, mat([0, 1.702, 0.012], [0.121, 0.11, 0.142], [0.14, 0, 0]), helmetTile, hc, headW, 2.5, false)
       // Rim + ear flaps.
       b.add(loftGeo([
-        { y: 1.668, rx: 0.123, rz: 0.142, cz: 0.014 },
-        { y: 1.688, rx: 0.121, rz: 0.14, cz: 0.012 },
-      ], 16), matAbout([0, 1.665, 0], [0.14, 0, 0]), TILE.BLACK_NYLON, CS(0.5, 0.5, 0.5), headW, 2.5, false)
-      b.add(T.box, mat([0.108, 1.655, 0.03], [0.022, 0.07, 0.1]), helmetTile, hc, headW, 2.5, false)
-      b.add(T.box, mat([-0.108, 1.655, 0.03], [0.022, 0.07, 0.1]), helmetTile, hc, headW, 2.5, false)
+        { y: 1.682, rx: 0.123, rz: 0.142, cz: 0.014 },
+        { y: 1.702, rx: 0.121, rz: 0.14, cz: 0.012 },
+      ], 16), matAbout([0, 1.679, 0], [0.14, 0, 0]), TILE.BLACK_NYLON, CS(0.5, 0.5, 0.5), headW, 2.5, false)
+      b.add(T.box, mat([0.108, 1.669, 0.03], [0.022, 0.07, 0.1]), helmetTile, hc, headW, 2.5, false)
+      b.add(T.box, mat([-0.108, 1.669, 0.03], [0.022, 0.07, 0.1]), helmetTile, hc, headW, 2.5, false)
       // NVG shroud + flip-up device.
-      b.add(T.box, mat([0, 1.742, -0.118], [0.05, 0.034, 0.03]), TILE.METAL, CS(0.5, 0.5, 0.5), headW, 2.5, false)
+      b.add(T.box, mat([0, 1.756, -0.118], [0.05, 0.034, 0.03]), TILE.METAL, CS(0.5, 0.5, 0.5), headW, 2.5, false)
       if (chance(0.55)) {
-        b.add(T.box, mat([0, 1.762, -0.134], [0.1, 0.05, 0.06]), TILE.METAL, CS(0.32, 0.32, 0.33), headW, 2.5, false)
-        b.add(T.cyl, mat([0.026, 1.762, -0.168], [0.017, 0.02, 0.017], [Math.PI / 2, 0, 0]), TILE.METAL, CS(0.06, 0.07, 0.08), headW, 2.5, false)
-        b.add(T.cyl, mat([-0.026, 1.762, -0.168], [0.017, 0.02, 0.017], [Math.PI / 2, 0, 0]), TILE.METAL, CS(0.06, 0.07, 0.08), headW, 2.5, false)
+        b.add(T.box, mat([0, 1.776, -0.134], [0.1, 0.05, 0.06]), TILE.METAL, CS(0.32, 0.32, 0.33), headW, 2.5, false)
+        b.add(T.cyl, mat([0.026, 1.776, -0.168], [0.017, 0.02, 0.017], [Math.PI / 2, 0, 0]), TILE.METAL, CS(0.06, 0.07, 0.08), headW, 2.5, false)
+        b.add(T.cyl, mat([-0.026, 1.776, -0.168], [0.017, 0.02, 0.017], [Math.PI / 2, 0, 0]), TILE.METAL, CS(0.06, 0.07, 0.08), headW, 2.5, false)
       }
       // Goggles strap + lenses on the brow.
       if (chance(0.6)) {
         b.add(loftGeo([
-          { y: 1.675, rx: 0.126, rz: 0.146, cz: 0.014 },
-          { y: 1.7, rx: 0.124, rz: 0.144, cz: 0.012 },
-        ], 16), matAbout([0, 1.665, 0], [0.14, 0, 0]), TILE.BLACK_NYLON, CS(0.6, 0.6, 0.6), headW, 2.5, false)
-        b.add(T.box, mat([0, 1.688, -0.138], [0.15, 0.052, 0.045]), TILE.BLACK_NYLON, CS(0.5, 0.5, 0.5), headW, 2.5, false)
-        b.add(T.box, mat([0.036, 1.688, -0.163], [0.056, 0.036, 0.012]), TILE.METAL, CS(0.18, 0.3, 0.34), headW, 2.5, false)
-        b.add(T.box, mat([-0.036, 1.688, -0.163], [0.056, 0.036, 0.012]), TILE.METAL, CS(0.18, 0.3, 0.34), headW, 2.5, false)
+          { y: 1.711, rx: 0.126, rz: 0.146, cz: 0.014 },
+          { y: 1.736, rx: 0.124, rz: 0.144, cz: 0.012 },
+        ], 16), matAbout([0, 1.701, 0], [0.14, 0, 0]), TILE.BLACK_NYLON, CS(0.6, 0.6, 0.6), headW, 2.5, false)
+        b.add(T.box, mat([0, 1.724, -0.138], [0.15, 0.052, 0.045]), TILE.BLACK_NYLON, CS(0.5, 0.5, 0.5), headW, 2.5, false)
+        b.add(T.box, mat([0.036, 1.724, -0.163], [0.056, 0.036, 0.012]), TILE.METAL, CS(0.18, 0.3, 0.34), headW, 2.5, false)
+        b.add(T.box, mat([-0.036, 1.724, -0.163], [0.056, 0.036, 0.012]), TILE.METAL, CS(0.18, 0.3, 0.34), headW, 2.5, false)
       }
       // Helmet cover scrim band.
-      b.add(T.box, mat([0, 1.77, 0.02], [0.2, 0.012, 0.012]), TILE.BLACK_NYLON, CS(0.5, 0.5, 0.5), headW, 2.5, false)
+      b.add(T.box, mat([0, 1.784, 0.02], [0.2, 0.012, 0.012]), TILE.BLACK_NYLON, CS(0.5, 0.5, 0.5), headW, 2.5, false)
     } else if (r < 0.72) {
       headgear = 'boonie'
       b.add(T.dome, mat([0, 1.715, 0.003], [0.104, 0.075, 0.115]), TILE.MULTICAM, CS(1, 1, 1), headW, 2.5, false)
@@ -599,7 +700,7 @@ export function buildSoldier(team: Team, rnd: () => number): SoldierRig {
       b.add(T.box, mat([0, 1.7, -0.12], [0.1, 0.012, 0.08], [0.18, 0, 0]), TILE.BLACK_NYLON, cc, headW, 2.5, false)
     } else {
       headgear = 'bare'
-      b.add(T.dome, mat([0, 1.69, 0.008], [0.094, 0.082, 0.108], [0.1, 0, 0]), TILE.KNIT, hair, headW, 2.5, false)
+      b.add(T.dome, mat([0, 1.712, 0.01], [0.089, 0.067, 0.104], [0.12, 0, 0]), TILE.KNIT, hair.clone().multiplyScalar(1.6), headW, 2.5, false)
     }
     // Ballistic glasses / shades.
     if (headgear !== 'helmet' || chance(0.4)) {
@@ -620,34 +721,33 @@ export function buildSoldier(team: Team, rnd: () => number): SoldierRig {
         { y: 1.5, rx: 0.088, rz: 0.09 },
         { y: 1.57, rx: 0.082, rz: 0.086 },
         { y: 1.6, rx: 0.078, rz: 0.08, cz: -0.004 },
-      ], 12), mat([0, 0, 0], [1, 1, 1]), TILE.SHEMAGH, CS(0.9, 0.85, 0.7), joint('head', 'chest', 1.52, 0.045), 2.5, false)
+      ], 12), mat([0, 0, 0], [1, 1, 1]), TILE.TAN_SHIRT, CS(0.95, 0.92, 0.82), joint('head', 'chest', 1.52, 0.045), 2.5, false)
     }
   } else {
     const r = rnd()
     if (r < 0.34) {
       headgear = 'shemagh'
-      const stile = chance(0.5) ? TILE.SHEMAGH : TILE.SHEMAGH_RED
-      const sc = vary(CS(0.95, 0.95, 0.95), 0.06)
-      b.add(T.sphere, mat([0, 1.685, 0.012], [0.1, 0.108, 0.118]), stile, sc, headW, 2.5, false)
+      const red = chance(0.5)
+      const stile = red ? TILE.SHEMAGH_RED : TILE.SHEMAGH
+      const sc = vary(pick([CS(1, 1, 1), CS(1, 0.95, 0.82), CS(0.9, 0.92, 0.95)]), 0.06)
+      // Wrapped head + face cloth with an eye slit, folds sculpted in.
+      b.add(H.wrap, mat([0, 0, 0], [1, 1, 1]), red ? TILE.SHEMAGH_WRAP_RED : TILE.SHEMAGH_WRAP, sc, headW, 1, false)
       b.add(loftGeo([
         { y: 1.505, rx: 0.1, rz: 0.1 },
         { y: 1.575, rx: 0.095, rz: 0.098 },
         { y: 1.62, rx: 0.088, rz: 0.1, cz: -0.004 },
       ], 12), mat([0, 0, 0], [1, 1, 1]), stile, sc, joint('head', 'chest', 1.52, 0.045), 2.5, false)
-      b.add(T.sphere, mat([0, 1.606, -0.016], [0.082, 0.062, 0.086]), stile, sc, headW, 2.5, false) // face wrap
       b.add(T.box, mat([0, 1.43, 0.115], [0.17, 0.2, 0.025], [-0.12, 0, 0]), stile, sc, rigid('chest'), 2.5, false) // tail
       b.add(T.box, mat([0.09, 1.52, -0.09], [0.08, 0.1, 0.03], [0, 0.3, 0.2]), stile, sc, joint('head', 'chest', 1.52, 0.05), 2.5, false)
     } else if (r < 0.52) {
       headgear = 'balaclava'
-      b.add(T.sphere, mat([0, 1.667, 0.004], [0.096, 0.114, 0.105]), TILE.KNIT, CS(1, 1, 1), headW, 2.5, false)
-      b.add(T.sphere, mat([0, 1.612, -0.012], [0.078, 0.064, 0.084]), TILE.KNIT, CS(1, 1, 1), headW, 2.5, false)
+      // Knit balaclava: ribbed shell with a cut eye slit; charcoal, olive or tan.
+      const bcol = pick([CS(1, 1, 1), CS(1, 1, 1), CS(1.25, 1.35, 1.0), CS(1.9, 1.62, 1.18)])
+      b.add(H.balaclava, mat([0, 0, 0], [1, 1, 1]), TILE.BALACLAVA, bcol, headW, 1, false)
       b.add(loftGeo([
-        { y: 1.5, rx: 0.07, rz: 0.07 },
-        { y: 1.58, rx: 0.066, rz: 0.068 },
-      ], 10), mat([0, 0, 0], [1, 1, 1]), TILE.KNIT, CS(1, 1, 1), joint('head', 'chest', 1.52, 0.045), 2.5, false)
-      b.add(T.box, mat([0, 1.676, -0.088], [0.1, 0.022, 0.02]), TILE.SKIN, SK(), headW, 3, false)
-      b.add(T.box, mat([0.034, 1.677, -0.1], [0.024, 0.008, 0.006]), TILE.BLACK_NYLON, CS(0.04, 0.03, 0.03), headW, 3, false)
-      b.add(T.box, mat([-0.034, 1.677, -0.1], [0.024, 0.008, 0.006]), TILE.BLACK_NYLON, CS(0.04, 0.03, 0.03), headW, 3, false)
+        { y: 1.49, rx: 0.074, rz: 0.074 },
+        { y: 1.58, rx: 0.07, rz: 0.072 },
+      ], 12), mat([0, 0, 0], [1, 1, 1]), TILE.BALACLAVA, bcol, joint('head', 'chest', 1.52, 0.045), 2.5, false)
     } else if (r < 0.66) {
       headgear = 'beanie'
       const bc = pick([CS(0.12, 0.12, 0.12), CS(0.2, 0.24, 0.16), CS(0.42, 0.36, 0.28)])
@@ -661,12 +761,9 @@ export function buildSoldier(team: Team, rnd: () => number): SoldierRig {
       ], 16), matAbout([0, 1.665, 0], [0.1, 0, 0]), TILE.RANGER, CS(0.8, 0.8, 0.8), headW, 2.5, false)
     } else {
       headgear = 'bare'
-      b.add(T.dome, mat([0, 1.688, 0.01], [0.094, 0.086, 0.108], [0.1, 0, 0]), TILE.KNIT, hair, headW, 2.5, false)
-      if (chance(0.55)) {
-        b.add(T.sphere, mat([0, 1.598, -0.022], [0.072, 0.052, 0.07]), TILE.KNIT, hair, headW, 2.5, false) // beard
-        b.add(T.box, mat([0, 1.625, -0.095], [0.05, 0.012, 0.014]), TILE.KNIT, hair, headW, 2.5, false) // moustache
-      }
+      b.add(T.dome, mat([0, 1.712, 0.01], [0.089, 0.067, 0.104], [0.12, 0, 0]), TILE.KNIT, hair.clone().multiplyScalar(1.6), headW, 2.5, false)
     }
+
     if (headgear !== 'balaclava' && chance(0.4)) {
       b.add(T.box, mat([0, 1.676, -0.097], [0.134, 0.028, 0.02]), TILE.METAL, CS(0.05, 0.05, 0.06), headW, 2.5, false)
     }

@@ -1,4 +1,4 @@
-import { type Object3D, Vector3 } from 'three'
+import { type Material, type MeshStandardMaterial, type Object3D, Vector3 } from 'three'
 import { CONFIG } from '../core/config'
 import type { Game } from '../core/game'
 import { clamp, DEG, damp, directionFromYawPitch, lerp, wrapAngle, yawFromDirection } from '../core/math'
@@ -21,7 +21,7 @@ const MAX_SUBSTEP = 0.14
 const CLIMB_SPEED = 2.5
 const LADDER_OFFSET = 0.42
 const CORPSE_TIME = 10
-const SINK_TIME = 1.5
+const SINK_TIME = 1.6
 const VIEW_RANGE = 95
 const FOV_COS = Math.cos(62 * DEG)
 const FOCUS_COS = Math.cos(28 * DEG)
@@ -180,6 +180,9 @@ export class Bot implements Actor {
   private meleeCd = 0
   private readonly grenadeAt = new Vector3()
 
+  private turning = false
+  private readonly baseMat: Material
+  private readonly fadeMat: MeshStandardMaterial
   private corpseT = 0
   private animAcc = 0
   private animFrame = 0
@@ -217,6 +220,9 @@ export class Bot implements Actor {
     this.anim = new SoldierAnimator(this.rig, this.models.primary)
     this.hitboxes = new SoldierHitboxes(this.rig)
     this.ragdoll = new Ragdoll(this.rig, game.collision)
+    this.baseMat = this.rig.mesh.material as Material
+    this.fadeMat = (this.baseMat as MeshStandardMaterial).clone()
+    this.fadeMat.transparent = true
     this.rig.root.visible = false
     this.animIn = {
       dt: 0, position: this.position, bodyYaw: 0, aimYaw: 0, aimPitch: 0, velocity: this.velocity, grounded: true,
@@ -300,9 +306,12 @@ export class Bot implements Actor {
     this.sprinting = false
     this.timeSinceDamage = 99
     this.ragdoll.stop()
+    this.rig.mesh.material = this.baseMat
+    this.rig.mesh.castShadow = true
     // Weapons back in hand, full ammo.
     if (this.dropped) {
       this.rig.root.add(this.dropped)
+      this.dropped.visible = true
       this.dropped = null
     }
     this.slot = 'primary'
@@ -367,6 +376,7 @@ export class Bot implements Actor {
   }
 
   dispose() {
+    this.fadeMat.dispose()
     this.rig.root.removeFromParent()
     this.dropped?.removeFromParent()
     this.rig.dispose()
@@ -868,11 +878,11 @@ export class Bot implements Actor {
     } else if (this.wishSpeed > 0.5) {
       // Look where we're heading, with an occasional glance at an open direction.
       wantYaw = yawFromDirection(this.wish.x, this.wish.z)
-      if (this.mode === 'investigate' || this.mode === 'pursue') {
+      if (!this.sprinting && (this.mode === 'investigate' || this.mode === 'pursue')) {
         _dir.subVectors(this.threatPos, this.position)
         if (_dir.lengthSq() < 30 * 30) wantYaw = yawFromDirection(_dir.x, _dir.z)
       }
-      wantYaw += Math.sin(now * 0.7 + this.aimSeed) * 0.35
+      wantYaw += Math.sin(now * 0.7 + this.aimSeed) * (this.sprinting ? 0.1 : 0.35)
       wantPitch = 0
       rate = 3.5
     } else {
@@ -1166,7 +1176,8 @@ export class Bot implements Actor {
   private repath() {
     this.repathT = 3 + Math.random()
     const nav = this.nav
-    const start = nav.nearest(this.position.x, this.position.y, this.position.z, 3)
+    let start = nav.nearest(this.position.x, this.position.y, this.position.z, 3)
+    if (start < 0) start = nav.nearest(this.position.x, this.position.y, this.position.z, 8)
     if (start < 0 || this.goalNode < 0) {
       this.pathLen = 0
       return
@@ -1250,7 +1261,9 @@ export class Bot implements Actor {
       const now = this.game.time
       const calm = !engaged && now - this.alertT > 3 && (!this.targetMem || now - this.targetMem.lastSeen > 3)
       const remaining = (this.pathLen - this.pathI) * 1.0
-      const wantSprint = calm && remaining > 6 && this.action !== 'reload' && this.wantStance === 0 && (this.mode === 'hunt' || this.mode === 'pursue' || this.mode === 'retreat' || this.mode === 'camp')
+      // Sprint only when looking roughly where we run (else the carry pose reads as port-arms sideways).
+      const lookAligned = dh > 1e-3 && Math.abs(wrapAngle(yawFromDirection(dx, dz) - this.yaw)) < 1.0
+      const wantSprint = calm && lookAligned && remaining > 6 && this.action !== 'reload' && this.wantStance === 0 && (this.mode === 'hunt' || this.mode === 'pursue' || this.mode === 'retreat' || this.mode === 'camp')
       this.sprinting = wantSprint
       this.wishSpeed = (wantSprint ? CONFIG.sprintSpeed : engaged ? CONFIG.walkSpeed * 0.7 : CONFIG.walkSpeed) * mob
       if (!wantSprint && this.wantStance !== 0 && !engaged) this.wantStance = 0
@@ -1553,6 +1566,11 @@ export class Bot implements Actor {
     }
     if (this.grounded && v.y < 0) v.y = 0
 
+    // Standing still on the ground: nothing can move us (static world), skip collision.
+    if (this.grounded && this.wishSpeed < 0.05 && Math.abs(v.x) + Math.abs(v.z) < 0.05 && v.y === 0) {
+      v.x = v.z = 0
+      return
+    }
     const prevX = p.x
     const prevZ = p.z
     const wasGrounded = this.grounded
@@ -1679,7 +1697,10 @@ export class Bot implements Actor {
     // Body yaw: follows the view when moving, lags (turn-in-place) when idle.
     const diff = wrapAngle(this.yaw - this.bodyYaw)
     const moving = Math.hypot(this.velocity.x, this.velocity.z) > 0.5
-    if (moving || Math.abs(diff) > 0.85) this.bodyYaw = wrapAngle(this.bodyYaw + diff * Math.min(1, a.dt * (moving ? 8 : 5)))
+    // Turn the lower body in place once the aim is ~60° off the hips, all the way round.
+    if (Math.abs(diff) > 1.05) this.turning = true
+    else if (Math.abs(diff) < 0.12) this.turning = false
+    if (moving || this.turning) this.bodyYaw = wrapAngle(this.bodyYaw + diff * Math.min(1, a.dt * (moving ? 8 : 6)))
     a.bodyYaw = this.bodyYaw
     a.aimYaw = this.yaw
     a.aimPitch = this.pitch
@@ -1711,9 +1732,19 @@ export class Bot implements Actor {
     this.corpseT += dt
     this.ragdoll.update(dt)
     if (this.corpseT > CORPSE_TIME) {
+      // Fade out (per-bot transparent copy of the shared material) while settling slightly.
       const s = Math.min(1, (this.corpseT - CORPSE_TIME) / SINK_TIME)
-      this.ragdoll.sink(s)
-      if (this.dropped) this.dropped.position.y -= dt * 0.4
+      const mesh = this.rig.mesh
+      if (mesh.material !== this.fadeMat) {
+        mesh.material = this.fadeMat
+      }
+      this.fadeMat.opacity = 1 - s * s * (3 - 2 * s)
+      mesh.castShadow = this.fadeMat.opacity > 0.55
+      this.ragdoll.sink(s * 0.2)
+      if (this.dropped) {
+        this.dropped.position.y -= dt * 0.05
+        if (s > 0.6) this.dropped.visible = false
+      }
       if (s >= 1) {
         this.rig.root.visible = false
         if (this.dropped) this.dropped.visible = false

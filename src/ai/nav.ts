@@ -279,12 +279,30 @@ export class NavGraph {
       }
       seeds.push(best)
     }
-    const fwd = this.flood(seeds, adj, n0, false)
-    const bwd = this.flood(seeds, adj, n0, true)
+    // Strongly connected component around the best spawn seed: every kept node can
+    // reach every other (one-way drops can otherwise strand bots and fail A*).
+    const radj = this.reverse(adj, n0)
+    let bestKeep: Uint8Array | null = null
+    let bestCount = -1
+    const tried = new Set<number>()
+    for (const seed of seeds) {
+      if (tried.has(seed) || (bestKeep && bestKeep[seed])) continue
+      tried.add(seed)
+      const fwd = this.flood([seed], adj, n0, null)
+      const bwd = this.flood([seed], adj, n0, radj)
+      const kk = new Uint8Array(n0)
+      let c = 0
+      for (let k = 0; k < n0; k++) if (fwd[k] && bwd[k]) (kk[k] = 1), c++
+      if (c > bestCount) {
+        bestCount = c
+        bestKeep = kk
+      }
+      if (c > n0 * 0.6) break
+    }
     let n = 0
     const remap = new Int32Array(n0).fill(-1)
     for (let k = 0; k < n0; k++) {
-      if (fwd[k] && bwd[k]) {
+      if (bestKeep && bestKeep[k]) {
         keep[k] = 1
         remap[k] = n++
       }
@@ -468,16 +486,17 @@ export class NavGraph {
     return best
   }
 
-  private flood(seeds: number[], adj: number[][], n: number, reverse: boolean): Uint8Array {
-    const seen = new Uint8Array(n)
-    let radj: number[][] | null = null
-    if (reverse) {
-      radj = Array.from({ length: n }, () => [])
-      for (let k = 0; k < n; k++) {
-        const a = adj[k]!
-        for (let q = 0; q < a.length; q += 3) radj[a[q]!]!.push(k)
-      }
+  private reverse(adj: number[][], n: number): number[][] {
+    const radj: number[][] = Array.from({ length: n }, () => [])
+    for (let k = 0; k < n; k++) {
+      const a = adj[k]!
+      for (let q = 0; q < a.length; q += 3) radj[a[q]!]!.push(k)
     }
+    return radj
+  }
+
+  private flood(seeds: number[], adj: number[][], n: number, radj: number[][] | null): Uint8Array {
+    const seen = new Uint8Array(n)
     const stack = [...seeds]
     for (const s of seeds) seen[s] = 1
     while (stack.length) {
