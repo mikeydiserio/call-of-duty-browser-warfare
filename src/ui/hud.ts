@@ -202,14 +202,15 @@ export class Hud {
     const dmgRoot = el('div', 'hud-dmg', root)
     for (let i = 0; i < DMG_POOL; i++) {
       const d = el('div', 'dmg-ind', dmgRoot)
-      d.innerHTML = `<svg viewBox="-60 -230 120 80"><path d="M-48 -176 A180 180 0 0 1 48 -176 L36 -168 A166 166 0 0 0 -36 -168 Z"/></svg>`
+      d.innerHTML = `<svg viewBox="-80 -200 160 70"><defs><radialGradient id="dmg-g${i}" cx="0" cy="190" r="190" gradientUnits="userSpaceOnUse" fx="0" fy="190"><stop offset=".86" stop-color="#ff1a0a" stop-opacity="0"/><stop offset=".94" stop-color="#d80c06" stop-opacity=".7"/><stop offset="1" stop-color="#ff2a10" stop-opacity=".85"/></radialGradient><linearGradient id="dmg-h${i}" x1="-70" x2="70" y1="0" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".3" stop-color="#fff"/><stop offset=".7" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient><mask id="dmg-m${i}"><rect x="-80" y="-200" width="160" height="70" fill="url(#dmg-h${i})"/></mask></defs><path mask="url(#dmg-m${i})" fill="url(#dmg-g${i})" d="M-70 -176.6 A190 190 0 0 1 70 -176.6 L56 -156.3 A166 166 0 0 0 -56 -156.3 Z"/></svg>`
       this.dmg.push({ el: d, actor: null, pos: new Vector3(), born: 0, key: -1, angle: 0, active: false })
     }
     const grRoot = el('div', 'hud-gren', root)
     for (let i = 0; i < GREN_POOL; i++) {
       const g = el('div', 'gren-ind', grRoot)
       const icon = el('div', 'gren-icon', g)
-      icon.innerHTML = `${ICON.grenadeWarn}<span class="gr-arrow"></span>`
+      icon.innerHTML = ICON.grenadeWarn
+      el('span', 'gr-arrow', g)
       this.gren.push({ el: g, icon, pos: null, born: 0, angle: 0, active: false })
     }
 
@@ -669,7 +670,7 @@ export class Hud {
         s.el.style.transform = `rotate(${deg.toFixed(1)}deg)`
         s.icon.style.transform = `translateY(-250px) rotate(${(-deg).toFixed(1)}deg)`
       }
-      const flash = 0.55 + 0.45 * Math.sin(now * 14)
+      const flash = 0.8 + 0.2 * Math.sin(now * 14)
       s.el.style.opacity = (age > 2.1 ? Math.max(0, (2.6 - age) / 0.5) : flash).toFixed(2)
     }
   }

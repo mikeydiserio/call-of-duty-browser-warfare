@@ -175,6 +175,15 @@ const WEAPON_ART: Record<WeaponId, Art> = {
 
 export function weaponSvg(id: WeaponId, cls = ''): string {
   const a = WEAPON_ART[id]
+  if (cls.includes('big')) {
+    // Large create-a-class render: gunmetal gradient body, edge highlight, darker detail cuts.
+    const g = `wg-${id}`
+    return `<svg class="wicon ${cls}" viewBox="${a.vb}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <defs><linearGradient id="${g}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#9da397"/><stop offset=".18" stop-color="#5d6259"/>
+        <stop offset=".55" stop-color="#2f322d"/><stop offset="1" stop-color="#1a1c19"/></linearGradient></defs>
+      <g fill="url(#${g})" stroke="#b9bfb0" stroke-opacity=".55" stroke-width=".8" stroke-linejoin="round">${a.body}</g></svg>`
+  }
   return `<svg class="wicon ${cls}" viewBox="${a.vb}" fill="currentColor" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${a.body}</svg>`
 }
 
