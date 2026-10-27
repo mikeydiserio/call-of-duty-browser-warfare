@@ -128,19 +128,21 @@ function sand(): PBR {
   const { A, B, W, C, CI } = getBank()
   const sandA: C3 = [210, 182, 136]
   const sandB: C3 = [176, 147, 104]
-  return bake(1024, 1024, 5, (u, v, p) => {
+  return bake(1024, 1024, 3.2, (u, v, p) => {
     const a = A.s(u, v)
     const a2 = A.s(u * 3 + 0.17, v * 3 + 0.43)
     const b = B.s(u * 2, v * 2)
     const warp = (A.s(u * 2, v * 2) - 0.5) * 5
     const r1 = Math.sin(TAU * (22 * u + 7 * v) + warp)
     const r2 = Math.sin(TAU * (94 * u + 31 * v) + warp * 2)
-    const ripple = r1 * 0.5 * sm(0.3, 0.7, a2) + r2 * 0.22
+    // wind ripples only in drifted patches; elsewhere packed, trampled sand
+    const drift = sm(0.58, 0.82, a2)
+    const ripple = r1 * 0.3 * drift + r2 * 0.05 * (0.4 + drift)
     const grain = W.at(u, v) - 0.5
     setMix(p, sandA, sandB, sm(0.25, 0.75, a * 0.7 + b * 0.3))
-    const k = 1 + ripple * 0.045 + grain * 0.08
+    const k = 1 + ripple * 0.05 + grain * 0.07 + (drift - 0.5) * 0.04
     shade(p, k)
-    let h = ripple * 0.35 + grain * 0.12 + b * 0.18
+    let h = ripple * 0.3 + grain * 0.1 + b * 0.35 + a * 0.25
     // pebbles
     const id = CI.at(u, v)
     if (id > 0.84) {
