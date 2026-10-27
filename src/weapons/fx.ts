@@ -83,6 +83,7 @@ export class WeaponFx {
       this.flash.add(m)
     }
     this.flash.visible = false
+    this.flash.name = 'vmFlash'
     scene.add(this.light)
 
     // Smoke wisps

@@ -65,7 +65,6 @@ export const WORLD_COLORS: Partial<Record<MatKey, number>> = {
 }
 
 const table = new Map<MatKey, Material>()
-let envTex: Texture | null = null
 const sets: Record<string, PBRSet> = {}
 let ready = false
 
@@ -86,11 +85,14 @@ function std(set: PBRSet | null, o: { color?: number; metalness: number; rough?:
   return m
 }
 
-/** Build the shared material table. Call once, after a renderer exists. */
-export function initViewmodelMaterials(renderer: WebGLRenderer): void {
+/**
+ * Build the shared material table (idempotent). Reflections come from each
+ * scene's `environment` (game sky in first person, studio light in the menu
+ * preview), so the same materials work in any renderer.
+ */
+export function initViewmodelMaterials(): void {
   if (ready) return
   ready = true
-  envTex = makeEnvironment(renderer)
   sets.gun = makeGunmetal(0x34373a, 0x9a9c9e)
   sets.blued = makeGunmetal(0x1d2023, 0x6a6c6e)
   sets.steel = makeGunmetal(0x8c8e90, 0xd0d2d4)
@@ -124,10 +126,6 @@ export function initViewmodelMaterials(renderer: WebGLRenderer): void {
   table.set('grenade', std(sets.grenade!, { color: 0xffffff, metalness: 0.35, rough: 1, normalScale: 1.2 }))
   table.set('watch', new MeshStandardMaterial({ color: 0xffffff, roughness: 0.3, metalness: 0.3 }))
 
-  for (const m of table.values()) {
-    if ('envMap' in m) (m as MeshStandardMaterial).envMap = envTex
-    if (m instanceof MeshStandardMaterial) m.envMapIntensity = (m.envMapIntensity ?? 1) * 1.1
-  }
 }
 
 export function mat(k: MatKey): Material {
@@ -136,12 +134,8 @@ export function mat(k: MatKey): Material {
   return m
 }
 
-export function getEnvTexture(): Texture | null {
-  return envTex
-}
-
-/** Warm desert-afternoon studio: dark sand floor, hazy horizon, bright sun patch + soft box. */
-function makeEnvironment(renderer: WebGLRenderer): Texture {
+/** Warm desert-afternoon studio: dark sand floor, hazy horizon, bright sun patch + soft box (menu preview). */
+export function makeStudioEnvironment(renderer: WebGLRenderer): Texture {
   const scene = new Scene()
   const geo = new SphereGeometry(50, 48, 32)
   const pos = geo.attributes.position!

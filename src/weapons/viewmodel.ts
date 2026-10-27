@@ -134,7 +134,7 @@ export class Viewmodel {
   private tmpT2 = mkTarget()
 
   constructor(ctx: RenderContext) {
-    initViewmodelMaterials(ctx.renderer)
+    initViewmodelMaterials()
     this.armR = new Arm(false)
     this.armL = new Arm(true)
     this.scene = ctx.viewmodelScene
