@@ -326,12 +326,12 @@ export class Viewmodel {
         ry += 0.25 * sp
         rz += 0.2 * sp
       } else {
-        ox += -0.01 * sp
-        oy += -0.04 * sp
-        oz += 0.04 * sp
-        rx += -0.22 * sp
-        ry += 0.68 * sp
-        rz += 0.45 * sp
+        ox += -0.02 * sp
+        oy += -0.015 * sp
+        oz += 0.05 * sp
+        rx += -0.18 * sp
+        ry += 0.5 * sp
+        rz += 0.38 * sp
       }
       // big rhythmic sprint swing
       rz += Math.sin(ph) * 0.06 * sp
@@ -373,16 +373,18 @@ export class Viewmodel {
         const empty = a.empty
         const tilt = seg(u, 0.0, 0.16) - seg(u, empty ? 0.86 : 0.8, 1)
         if (pistol) {
-          rx += 0.25 * tilt
+          rx += 0.3 * tilt
           rz += -0.35 * tilt
           ry += 0.15 * tilt
-          oy += 0.015 * tilt
+          ox += -0.02 * tilt
+          oy += 0.05 * tilt
         } else {
-          rx += 0.16 * tilt
-          rz += 0.62 * tilt
-          ry += -0.12 * tilt
-          ox += -0.03 * tilt
-          oy += 0.012 * tilt
+          rx += 0.3 * tilt
+          rz += -0.5 * tilt
+          ry += 0.12 * tilt
+          ox += -0.06 * tilt
+          oy += 0.085 * tilt
+          oz += 0.04 * tilt
         }
         // magazine path
         const out = seg(u, 0.14, 0.26) * 0.05 + seg(u, 0.26, 0.4) * 0.32
@@ -504,10 +506,10 @@ export class Viewmodel {
         rhOn = 'knife'
         const kh = this.knifeHolder
         kh.visible = u > 0.03 && u < 0.82
-        const swing = seg(u, 0.14, 0.36)
+        const swing = seg(u, 0.14, 0.34)
         const outW = seg(u, 0.03, 0.14) * (1 - seg(u, 0.55, 0.8))
-        kh.position.set(lerp(0.3, -0.12, swing), lerp(-0.08, -0.16, swing) - (1 - outW) * 0.25, lerp(-0.34, -0.42, swing))
-        _e.set(lerp(0.15, -0.1, swing), lerp(-0.4, 0.95, swing), lerp(1.1, 1.75, swing), 'YXZ')
+        kh.position.set(lerp(0.24, -0.14, swing), lerp(-0.07, -0.1, swing) - (1 - outW) * 0.3, lerp(-0.36, -0.42, swing))
+        _e.set(lerp(0.25, 0.0, swing), lerp(-0.5, 0.9, swing), lerp(1.35, 1.6, swing), 'YXZ')
         kh.quaternion.setFromEuler(_e)
         break
       }

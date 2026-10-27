@@ -126,6 +126,7 @@ export class WeaponSystem {
   private anim: AnimInput
   private hud: HudWeaponState
   private lastStageU = 0
+  private frameDt = 0
 
   constructor(
     protected game: Game,
@@ -180,6 +181,7 @@ export class WeaponSystem {
     const realDt = dt
     dt *= this.timeScale
     this.time += dt
+    this.frameDt = dt
     const def = this.current
     const st = this.slotState
     const playing = this.game.mode.phase === 'playing'
@@ -318,7 +320,8 @@ export class WeaponSystem {
     const owner = this.owner
     st.mag--
     owner.stats.shotsFired++
-    this.cooldown = 60 / def.rpm
+    // carry the sub-frame remainder so the real rate matches rpm at any frame rate
+    this.cooldown = Math.max(this.cooldown, -this.frameDt) + 60 / def.rpm
     this.lastShot = this.time
     this.shotCount++
 

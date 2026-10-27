@@ -150,10 +150,10 @@ export class WeaponFx {
     this.flashMats[0]!.map = this.textures[v]!
     this.flashMats[1]!.map = this.textures[(v + 1) % 3]!
     this.flashMats[2]!.map = this.textures[(v + 2) % 3]!
-    this.flashFront.scale.setScalar(0.11 * s)
+    this.flashFront.scale.setScalar(0.17 * s)
     this.flashFront.rotation.z = Math.random() * Math.PI * 2
-    this.flashSideA.scale.set(0.2 * s, 0.075 * s, 1)
-    this.flashSideB.scale.set(0.2 * s, 0.075 * s, 1)
+    this.flashSideA.scale.set(0.24 * s, 0.11 * s, 1)
+    this.flashSideB.scale.set(0.24 * s, 0.11 * s, 1)
     this.flash.rotation.z = Math.random() * Math.PI
     this.flash.visible = true
     this.flashT = 0.05
