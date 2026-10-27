@@ -379,11 +379,11 @@ export class Viewmodel {
           ox += -0.02 * tilt
           oy += 0.05 * tilt
         } else {
-          rx += 0.3 * tilt
+          rx += 0.17 * tilt
           rz += -0.5 * tilt
           ry += 0.12 * tilt
           ox += -0.06 * tilt
-          oy += 0.085 * tilt
+          oy += 0.07 * tilt
           oz += 0.04 * tilt
         }
         // magazine path
@@ -523,15 +523,15 @@ export class Viewmodel {
         fh.visible = act !== 'fragThrow' || u < 0.32
         const pin = this.frag.parts.pin
         const spoon = this.frag.parts.spoon
-        let x = 0.1
-        let y = -0.13
-        let z = -0.32
+        let x = 0.13
+        let y = -0.11
+        let z = -0.42
         let px = 0.2
         let py = 0.1
         let pz = 0.0
         if (act === 'fragPull') {
           const up = seg(u, 0.15, 0.55)
-          y = lerp(-0.4, -0.13, up)
+          y = lerp(-0.4, -0.11, up)
           const pull = seg(u, 0.62, 0.88)
           if (pin) pin.position.set(this.frag.rest.pin!.p.x - pull * 0.09, this.frag.rest.pin!.p.y + pull * 0.02, this.frag.rest.pin!.p.z + pull * 0.03)
           if (pin) pin.visible = true
@@ -540,9 +540,9 @@ export class Viewmodel {
         } else if (act === 'fragHold') {
           // wind-up: arm cocked back, slight cook tremble
           const w = seg(u, 0, 0.35)
-          x = lerp(0.1, 0.2, w)
-          y = lerp(-0.13, -0.07, w)
-          z = lerp(-0.32, -0.2, w)
+          x = lerp(0.13, 0.22, w)
+          y = lerp(-0.11, -0.06, w)
+          z = lerp(-0.42, -0.3, w)
           px += w * 0.6
           py -= w * 0.3
           pz += w * 0.2
@@ -551,9 +551,9 @@ export class Viewmodel {
           lhOn = 'free'
         } else {
           const th = seg(u, 0.0, 0.32)
-          x = lerp(0.2, -0.02, th)
-          y = lerp(-0.07, 0.02, th) - seg(u, 0.32, 0.75) * 0.35
-          z = lerp(-0.2, -0.55, th)
+          x = lerp(0.22, -0.02, th)
+          y = lerp(-0.06, 0.02, th) - seg(u, 0.32, 0.75) * 0.35
+          z = lerp(-0.3, -0.6, th)
           px = lerp(0.8, -0.6, th)
           py = 0.0
           if (pin) pin.visible = false
