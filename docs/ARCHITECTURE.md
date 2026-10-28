@@ -9,6 +9,7 @@ Single-player browser FPS (Three.js r186 + Vite + TypeScript strict, bun). One m
 - `window.game` exposes the `Game` instance in devtools. `game.freezeMenuCamera = true` stops the menu fly-through so you can pose `game.render.camera` yourself.
 - Typecheck: `bunx tsc --noEmit` (from repo root). Several agents edit in parallel — only fix errors in files you own.
 - Build: `bun run build`.
+- Rust map geometry comes from `assets-src/maps/mp_rust.obj` (MW2 export). After changing the OBJ, regenerate `public/maps/mp_rust.bin` + `mp_rust_minimap.png` with `bun tools/convert_rust_obj.ts`. Spawns, objectives, callouts and ladders live in `src/world/rust/map.ts`.
 
 ## Module ownership (do NOT edit files you don't own)
 

@@ -7,7 +7,8 @@ import { createMaterials, type MatKey } from './materials'
 
 export const MAP_BOUNDS = { minX: -34, maxX: 34, minZ: -34, maxZ: 34 }
 export type SpawnSpec = { team: Team | 'any'; x: number; z: number; look?: [number, number] }
-export type PointSpec = { id: ObjectiveId; x: number; z: number; radius: number }
+/** `y` is the floor height the prop stands on (default 0). */
+export type PointSpec = { id: ObjectiveId; x: number; z: number; radius: number; y?: number }
 export type MapShape = { x: number; z: number; w: number; d: number; color: string; angle?: number }
 
 export interface MapBlueprint {
@@ -70,11 +71,12 @@ export function addPerimeterFence(b: MapBuilder, mat: MatKey = 'rustDark') {
 export function addObjectives(root: Group, b: MapBuilder, flags: PointSpec[], sites: PointSpec[]) {
   const poleMat = new MeshStandardMaterial({ color: 0x75736c, roughness: 0.55, metalness: 0.7 })
   for (const flag of flags) {
-    b.box('concreteDark', 0.5, 0.18, 0.5, flag.x, 0.09, flag.z)
-    b.cyl('black', 0.045, 0.045, 3.1, 'y', flag.x, 1.7, flag.z, 8)
+    const y = flag.y ?? 0
+    b.box('concreteDark', 0.5, 0.18, 0.5, flag.x, y + 0.09, flag.z)
+    b.cyl('black', 0.045, 0.045, 3.1, 'y', flag.x, y + 1.7, flag.z, 8)
     const group = new Group()
     group.name = `domflag_${flag.id}`
-    group.position.set(flag.x, 0, flag.z)
+    group.position.set(flag.x, y, flag.z)
     const pole = new Mesh(new CylinderGeometry(0.035, 0.045, 3.1, 8), poleMat)
     pole.position.y = 1.7
     pole.name = 'pole'
@@ -86,9 +88,10 @@ export function addObjectives(root: Group, b: MapBuilder, flags: PointSpec[], si
     root.add(group)
   }
   for (const site of sites) {
-    b.box('concrete', 2.2, 0.16, 1.5, site.x, 0.08, site.z)
-    b.box('panel', 1.55, 1.05, 0.72, site.x, 0.65, site.z)
-    b.box('redwhite', 1.6, 0.12, 0.75, site.x, 0.37, site.z)
+    const y = site.y ?? 0
+    b.box('concrete', 2.2, 0.16, 1.5, site.x, y + 0.08, site.z)
+    b.box('panel', 1.55, 1.05, 0.72, site.x, y + 0.65, site.z)
+    b.box('redwhite', 1.6, 0.12, 0.75, site.x, y + 0.37, site.z)
     const group = new Group()
     group.name = `bombsite_${site.id}`
     root.add(group)

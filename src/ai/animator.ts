@@ -112,6 +112,10 @@ export class SoldierAnimator {
   private ladderW = 0
   private hipTwist = 0
   private moveAngle = 0
+  /** Smoothed world move heading (feet swing round on a reversal instead of mirroring in one frame). */
+  private moveHeading = 0
+  private mdx = 0
+  private mdz = 1
   private breath = Math.random() * 10
   private climb = 0
   /** Recoil springs (gun pitch, gun pull-back). */
@@ -170,7 +174,13 @@ export class SoldierAnimator {
     this.aimW = damp(this.aimW, inp.aim, 10, dt)
     this.airW = damp(this.airW, !inp.grounded && !climbing ? 1 : 0, 10, dt)
     this.ladderW = damp(this.ladderW, climbing ? 1 : 0, 10, dt)
-    if (speed > 0.3) this.moveAngle = Math.atan2(vr, vf)
+    if (speed > 0.3) {
+      const want = Math.atan2(vx, vz)
+      this.moveHeading = wrapAngle(this.moveHeading + wrapAngle(want - this.moveHeading) * (1 - Math.exp(-9 * dt)))
+      this.mdx = Math.sin(this.moveHeading)
+      this.mdz = Math.cos(this.moveHeading)
+      this.moveAngle = Math.atan2(this.mdx * rx + this.mdz * rz, this.mdx * fx + this.mdz * fz)
+    }
     // Hips turn toward the move direction (strafe = diagonal hips), backwards uses mirrored twist.
     let tw = this.moveAngle
     if (tw > Math.PI * 0.6) tw -= Math.PI
@@ -257,8 +267,8 @@ export class SoldierAnimator {
       }
       this.lastU[side] = u
       // Move direction (world).
-      const mdx = speed > 0.05 ? vx / speed : fx
-      const mdz = speed > 0.05 ? vz / speed : fz
+      const mdx = this.mdx
+      const mdz = this.mdz
       // Stance width along body right; crouch: one knee forward, feet wider.
       const width = 0.115 + this.crouchW * 0.05
       const crouchStagger = this.crouchW * (1 - this.moveW) * (side === 0 ? 0.16 : -0.08)

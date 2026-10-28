@@ -1,71 +1,143 @@
 /**
- * MW2 "Rust": a compact late-afternoon desert oil yard. Central rusted tower (reachable by
- * ladders and by walking up the 1.2 m pipeline), ringed by containers, tanks, a derrick and
- * small buildings, enclosed by fences and sand berms. Everything is procedural.
+ * MW2 "Rust", built from the original level geometry (assets-src/maps/mp_rust.obj, converted to
+ * mp_rust.bin by tools/convert_rust_obj.ts and fetched by preloadRustMap() before boot).
+ * Gameplay data — spawns, objectives, callouts, ladders — is authored here in game metres:
+ * +X east, −Z north, ground ≈ 0. The yard is ~55 × 53 m inside the chain-link perimeter.
  */
 import { Group, type Scene, Vector3 } from 'three'
+import { CONFIG } from '../../core/config'
 import { yawFromDirection } from '../../core/math'
-import type { Callout, MapData, ObjectivePoint, SpawnPoint, Team } from '../../core/types'
+import type { Callout, Ladder, MapData, ObjectivePoint, SpawnPoint, Team } from '../../core/types'
 import { MapBuilder } from '../builder'
-import type { CollisionWorld } from '../collision'
+import type { CapsuleResult, CollisionWorld } from '../collision'
+import { addBounds, addObjectives, type PointSpec, type SpawnSpec } from '../map-common'
 import { createMaterials } from '../materials'
-import { buildBackdrop } from './backdrop'
-import { drawMinimap } from './minimap'
-import { type Ctx, Instancer, registerPrototypes } from './props'
-import { buildDecals, buildTerrain, type DarkSpot, type Patch, type Track } from './terrain'
-import { buildTower, TOWER } from './tower'
-import { BOMB_SITES, BOMB_SPAWN, buildObjectives, DOM_FLAGS, SD_ATTACKERS_FIRST } from './objectives'
-import { BIG_PIPE, buildScatter, buildZones, ZONES } from './zones'
+import { buildRustGeometry, rustAssets } from './obj-map'
 
 const V = (x: number, y: number, z: number) => new Vector3(x, y, z)
 
-const BOUNDS = { minX: -34, maxX: 34, minZ: -34, maxZ: 34 }
+/** Zones (centre + radius), used for callouts. */
+const ZONES = {
+  derrick: { name: 'Oil Derrick', x: -15.6, z: -18.3, r: 6 },
+  pipeline: { name: 'Pipeline', x: 2, z: -21.5, r: 7 },
+  redTank: { name: 'Red Tank', x: 3.3, z: -14.1, r: 3.5 },
+  northShed: { name: 'North Shed', x: 17.5, z: -13.6, r: 5 },
+  tower: { name: 'Tower', x: 3.1, z: -1.5, r: 8 },
+  westShack: { name: 'West Shack', x: -24.4, z: -3.2, r: 4.5 },
+  eastShack: { name: 'East Shack', x: 24.4, z: -3.2, r: 4.5 },
+  rails: { name: 'Rails', x: -10.5, z: 6, r: 5 },
+  fuelTanks: { name: 'Fuel Tanks', x: 18.9, z: 19.2, r: 6 },
+  southBuilding: { name: 'South Building', x: 1.5, z: 22.5, r: 5 },
+  southWest: { name: 'Southwest Yard', x: -18, z: 19, r: 8 },
+  northEast: { name: 'Northeast Yard', x: 23, z: -18, r: 6 },
+}
 
-const TRACKS: Track[] = [
-  // gate → past the fuel depot → east of the tower → south road → loading dock
-  { pts: [V(28, 0, -40), V(27, 0, -31), V(21, 0, -21), V(16.5, 0, -10), V(16.5, 0, 4), V(13, 0, 17), V(4, 0, 18.4), V(-8, 0, 21), V(-18, 0, 23.4), V(-26, 0, 24), V(-40, 0, 24)], width: 3.4 },
-  // spur into the generators
-  { pts: [V(14.5, 0, 14), V(20, 0, 19.5), V(31, 0, 18.5)], width: 3.0 },
-  // spur to the derrick from the north road
-  { pts: [V(18, 0, -16), V(4, 0, -14), V(-10, 0, -16), V(-18, 0, -18.5)], width: 3.0 },
+const SPAWNS: SpawnSpec[] = [
+  // TF141 — southwest yard
+  { team: 'tf141', x: -22.5, z: 22.5, look: [0, 0] },
+  { team: 'tf141', x: -19.0, z: 23.5, look: [0, 0] },
+  { team: 'tf141', x: -24.5, z: 18.5, look: [0, 0] },
+  { team: 'tf141', x: -15.5, z: 23.0, look: [0, 0] },
+  { team: 'tf141', x: -21.0, z: 15.5, look: [0, 0] },
+  { team: 'tf141', x: -12.5, z: 21.0, look: [0, 0] },
+  // OpFor — northeast yard
+  { team: 'opfor', x: 23.5, z: -19.5, look: [0, 0] },
+  { team: 'opfor', x: 20.0, z: -19.0, look: [0, 0] },
+  { team: 'opfor', x: 25.0, z: -15.5, look: [0, 0] },
+  { team: 'opfor', x: 16.0, z: -19.0, look: [0, 0] },
+  { team: 'opfor', x: 24.5, z: -11.0, look: [0, 0] },
+  { team: 'opfor', x: 12.5, z: -18.5, look: [0, 0] },
+  // anywhere — around the edges
+  ...([
+    [-25.0, -12.0], [-20.0, -8.0], [-8.0, -15.0], [-24.5, 7.0], [-17.5, 0.5], [-6.0, 14.0],
+    [8.5, 15.0], [10.0, 24.0], [25.0, 10.0], [25.0, 25.0], [14.0, 2.0], [-2.0, -10.0],
+    [10.0, -9.0], [-25.0, 25.0], [-9.0, 24.0], [25.0, -24.5],
+  ] as [number, number][]).map(([x, z]): SpawnSpec => ({ team: 'any', x, z })),
 ]
 
-const DARK: DarkSpot[] = [
-  { x: 0, z: 0.5, r: 9, k: 0.8 },
-  { x: -24, z: -23.5, r: 9, k: 0.9 },
-  { x: 22, z: 24, r: 8, k: 0.8 },
-  { x: 25, z: -8.5, r: 7, k: 0.7 },
-  { x: -26, z: -5, r: 7, k: 0.6 },
-  { x: -24, z: 27, r: 9, k: 0.5 },
-  { x: -17, z: -28, r: 5, k: 0.8 },
+/** Domination: A on the TF141 side, B east of the tower, C on the OpFor side. */
+const FLAGS: PointSpec[] = [
+  { id: 'A', x: -14.5, z: 15.0, radius: 4.5 },
+  { id: 'B', x: 12.2, z: 7.7, radius: 5 },
+  { id: 'C', x: 15.4, z: -8.4, radius: 4.5 },
 ]
+/** S&D: OpFor attack from the northeast; the sites sit on the TF141 half. */
+const SITES: PointSpec[] = [
+  { id: 'A', x: -6.0, z: 19.0, radius: 3 },
+  { id: 'B', x: -17.5, z: 4.5, radius: 3 },
+]
+const BOMB_SPAWN = { x: 22.0, z: -21.0 }
+const SD_ATTACKERS_FIRST: Team = 'opfor'
 
-const OIL: Patch[] = [
-  { x: -24, z: -23.5, size: 4.5, rot: 0.4, y: undefined },
-  { x: -16.8, z: -27.6, size: 3.2, rot: 1.2 },
-  { x: -21.2, z: -20.2, size: 2.2, rot: 2.0 },
-  { x: 18.9, z: 21.4, size: 3.0, rot: 0.2 },
-  { x: 23.0, z: 27.6, size: 2.4, rot: 1.5 },
-  { x: 27.0, z: 19.0, size: 2.8, rot: 2.6 },
-  { x: 24.0, z: -8.8, size: 3.5, rot: 0.8 },
-  { x: -25.4, z: -6.8, size: 2.6, rot: 0.1 },
-  { x: -19.4, z: -7.0, size: 3.4, rot: 2.2 },
-  { x: 1.5, z: 2.0, size: 2.6, rot: 0.6, y: TOWER.f0 },
-  { x: -2.0, z: -2.2, size: 1.8, rot: 1.6, y: TOWER.f0 },
-  { x: 9.0, z: 12.0, size: 2.2, rot: 2.9 },
-  { x: -12.0, z: 20.5, size: 2.0, rot: 0.3 },
-]
+/** Climbable ladders (bottom at ground, top where the climber steps off). */
+const LADDERS: Ladder[] = []
 
-const SOIL: Patch[] = [
-  { x: 0, z: -9, size: 8, rot: 0.3 },
-  { x: -10, z: 2, size: 9, rot: 1.1 },
-  { x: 10, z: 8, size: 8, rot: 2.1 },
-  { x: -14, z: -20, size: 10, rot: 0.6 },
-  { x: 18, z: -18, size: 9, rot: 2.6 },
-  { x: -4, z: 26, size: 9, rot: 1.6 },
-  { x: 26, z: 14, size: 7, rot: 0.9 },
-  { x: -28, z: 14, size: 8, rot: 2.3 },
-]
+const _cap: CapsuleResult = { onGround: false, groundNormal: new Vector3(), push: new Vector3(), collided: false }
+const _a = new Vector3()
+const _b = new Vector3()
+
+/** True if a standing capsule fits at (x, y, z) without touching anything. */
+function clearAt(collision: CollisionWorld, x: number, y: number, z: number) {
+  const r = CONFIG.capsuleRadius
+  _a.set(x, y + r + 0.08, z)
+  _b.set(x, y + 1.8 - r, z)
+  return !collision.resolveCapsule(_a, _b, r, _cap).collided
+}
+
+/** Ground y at the spec, nudged outward in rings until a standing capsule fits on open ground. */
+function placeSpawn(collision: CollisionWorld, s: SpawnSpec): SpawnPoint {
+  for (let ring = 0; ring <= 6; ring++) {
+    const steps = ring === 0 ? 1 : 8
+    for (let k = 0; k < steps; k++) {
+      const ang = (k / steps) * Math.PI * 2
+      const x = s.x + Math.cos(ang) * ring * 0.6
+      const z = s.z + Math.sin(ang) * ring * 0.6
+      const y = collision.groundHeight(x, z, 30, 60)
+      if (!Number.isFinite(y) || y > 1.5 || !clearAt(collision, x, y, z)) continue
+      const [lx, lz] = s.look ?? [0, 0]
+      return { team: s.team, position: V(x, y + 0.02, z), yaw: yawFromDirection(lx - x, lz - z) }
+    }
+  }
+  console.warn(`[rust] no clear ground near spawn (${s.x}, ${s.z})`)
+  const [lx, lz] = s.look ?? [0, 0]
+  return { team: s.team, position: V(s.x, 0.2, s.z), yaw: yawFromDirection(lx - s.x, lz - s.z) }
+}
+
+function drawMinimap(bounds: MapData['bounds'], flags: ObjectivePoint[], sites: ObjectivePoint[]): HTMLCanvasElement {
+  const S = 512
+  const cv = document.createElement('canvas')
+  cv.width = cv.height = S
+  const g = cv.getContext('2d')!
+  g.drawImage(rustAssets().minimap, 0, 0, S, S)
+  const X = (x: number) => ((x - bounds.minX) / (bounds.maxX - bounds.minX)) * S
+  const Z = (z: number) => ((z - bounds.minZ) / (bounds.maxZ - bounds.minZ)) * S
+  // objectives, drawn lightly (the UI overlays live state): flags = letter in a circle, sites = square
+  g.font = 'bold 15px "Saira Condensed", "Arial Narrow", sans-serif'
+  g.textAlign = 'center'
+  g.textBaseline = 'middle'
+  for (const [list, round] of [[flags, true], [sites, false]] as [ObjectivePoint[], boolean][]) {
+    for (const o of list) {
+      const x = X(o.position.x)
+      const y = Z(o.position.z)
+      g.fillStyle = 'rgba(20,20,16,0.45)'
+      g.strokeStyle = 'rgba(225,222,205,0.55)'
+      g.lineWidth = 1.5
+      g.beginPath()
+      if (round) g.arc(x, y, 10, 0, Math.PI * 2)
+      else g.rect(x - 9, y - 9, 18, 18)
+      g.fill()
+      g.stroke()
+      g.fillStyle = 'rgba(235,232,215,0.75)'
+      g.fillText(o.id, x, y + 1)
+    }
+  }
+  const v = g.createRadialGradient(S / 2, S / 2, S * 0.45, S / 2, S / 2, S * 0.72)
+  v.addColorStop(0, 'rgba(0,0,0,0)')
+  v.addColorStop(1, 'rgba(0,0,0,0.35)')
+  g.fillStyle = v
+  g.fillRect(0, 0, S, S)
+  return cv
+}
 
 export function buildRustMap(scene: Scene, collision: CollisionWorld): MapData {
   const t0 = performance.now()
@@ -73,112 +145,44 @@ export function buildRustMap(scene: Scene, collision: CollisionWorld): MapData {
   root.name = 'rust'
   const mats = createMaterials()
   const b = new MapBuilder(mats, collision)
-  const c: Ctx = { b, inst: new Instancer(b), ladders: [], fp: [] }
-  registerPrototypes(c)
 
-  const terr = buildTerrain(root, collision, TRACKS, DARK)
-  buildDecals(root, TRACKS, OIL, SOIL)
-  buildTower(c)
-  buildZones(c)
-  buildObjectives(c, root)
-  buildScatter(c)
-  buildBackdrop(root, b)
+  const geo = buildRustGeometry(root, collision, mats)
+  const bounds = geo.bounds
+  const flagSpecs = FLAGS.map((f) => ({ ...f, y: geo.groundAt(f.x, f.z) }))
+  const siteSpecs = SITES.map((s) => ({ ...s, y: geo.groundAt(s.x, s.z) }))
+  addObjectives(root, b, flagSpecs, siteSpecs)
+  addBounds(collision, bounds)
 
-  // invisible bounds walls (the player clamps too; this keeps bots & grenades in)
-  const wallH = 30
-  for (const [x, z, w, d] of [
-    [0, BOUNDS.minZ - 0.5, 80, 1],
-    [0, BOUNDS.maxZ + 0.5, 80, 1],
-    [BOUNDS.minX - 0.5, 0, 1, 80],
-    [BOUNDS.maxX + 0.5, 0, 1, 80],
-  ] as [number, number, number, number][]) {
-    collision.addBox(V(x, wallH / 2 - 2, z), V(w, wallH, d), 'sand')
-  }
-
-  const merged = b.finish(root)
-  const inst = c.inst.finish(root)
+  b.finish(root)
   scene.add(root)
   collision.build()
 
-  // ── spawns (y from the built collision) ──
-  const spawns: SpawnPoint[] = []
-  const addSpawn = (team: Team | 'any', x: number, z: number, look?: [number, number]) => {
-    const y = collision.groundHeight(x, z, 30, 60)
-    const [lx, lz] = look ?? [0, 0]
-    spawns.push({ team, position: V(x, Number.isFinite(y) ? y + 0.02 : 0.2, z), yaw: yawFromDirection(lx - x, lz - z) })
-  }
-  // TF141 — Loading Dock (on and in front of the dock)
-  addSpawn('tf141', -26.0, 29.0, [0, 10])
-  addSpawn('tf141', -22.0, 28.6, [0, 10])
-  addSpawn('tf141', -29.0, 24.2, [0, 10])
-  addSpawn('tf141', -23.4, 24.2, [0, 10])
-  addSpawn('tf141', -18.4, 27.6, [0, 10])
-  addSpawn('tf141', -31.0, 28.6, [0, 10])
-  // OpFor — Front Gate
-  addSpawn('opfor', 26.0, -29.8, [0, -5])
-  addSpawn('opfor', 29.4, -28.0, [0, -5])
-  addSpawn('opfor', 22.6, -28.8, [0, -5])
-  addSpawn('opfor', 27.4, -24.6, [0, -5])
-  addSpawn('opfor', 31.6, -23.4, [0, -5])
-  addSpawn('opfor', 20.6, -26.6, [0, -5])
-  // anywhere — behind cover around the edges
-  const anyPts: [number, number][] = [
-    [-30.0, -9.0], [-28.5, -2.0], [-22.5, -27.5], [-28.5, -19.0], [-14.5, -29.0], [-1.0, -24.0],
-    [5.0, -29.5], [15.5, -21.5], [30.0, -12.5], [30.5, -1.5], [29.5, 10.0], [24.5, 13.5],
-    [30.5, 29.5], [18.0, 30.5], [8.0, 30.5], [-3.5, 30.5], [-10.5, 26.5], [-31.0, 12.0],
-    [-30.5, 4.5], [-13.0, -6.5], [16.0, -1.0], [1.0, 14.5],
-  ]
-  for (const [x, z] of anyPts) addSpawn('any', x, z)
-
-  const callouts: Callout[] = [
-    { name: 'Front Gate', center: V(ZONES.frontGate.x, 0, ZONES.frontGate.z), radius: ZONES.frontGate.r },
-    { name: 'Loading Dock', center: V(ZONES.loadingDock.x, 0, ZONES.loadingDock.z), radius: ZONES.loadingDock.r },
-    { name: 'Tower', center: V(0, 0, 0.5), radius: ZONES.tower.r },
-    { name: 'Pipeline', center: V(ZONES.pipeline.x, 0, ZONES.pipeline.z), radius: ZONES.pipeline.r },
-    { name: 'Oil Derrick', center: V(ZONES.derrick.x, 0, ZONES.derrick.z), radius: ZONES.derrick.r },
-    { name: 'Blue Containers', center: V(ZONES.blueContainers.x, 0, ZONES.blueContainers.z), radius: ZONES.blueContainers.r },
-    { name: 'Red Containers', center: V(ZONES.redContainers.x, 0, ZONES.redContainers.z), radius: ZONES.redContainers.r },
-    { name: 'Generators', center: V(ZONES.generators.x, 0, ZONES.generators.z), radius: ZONES.generators.r },
-    { name: 'Control Room', center: V(ZONES.controlRoom.x, 0, ZONES.controlRoom.z), radius: ZONES.controlRoom.r },
-    { name: 'Maintenance', center: V(ZONES.maintenance.x, 0, ZONES.maintenance.z), radius: ZONES.maintenance.r },
-    { name: 'Fuel Depot', center: V(ZONES.fuelDepot.x, 0, ZONES.fuelDepot.z), radius: ZONES.fuelDepot.r },
-    { name: 'Comms Station', center: V(ZONES.comms.x, 0, ZONES.comms.z), radius: ZONES.comms.r },
-  ]
+  const spawns = SPAWNS.map((s) => placeSpawn(collision, s))
+  const point = (p: PointSpec & { y: number }): ObjectivePoint => ({ id: p.id, position: V(p.x, p.y, p.z), radius: p.radius })
+  const domFlags = flagSpecs.map(point)
+  const bombSites = siteSpecs.map(point)
+  const by = collision.groundHeight(BOMB_SPAWN.x, BOMB_SPAWN.z, 30, 60)
+  const bombSpawn = V(BOMB_SPAWN.x, Number.isFinite(by) ? by + 0.05 : 0.1, BOMB_SPAWN.z)
+  const callouts: Callout[] = Object.values(ZONES).map((z) => ({ name: z.name, center: V(z.x, 0, z.z), radius: z.r }))
 
   // Sun from the west-south-west, ~25° up. sunDirection points from the sun into the scene.
   const az = Math.PI * (22.5 / 180)
   const el = Math.PI * (25 / 180)
   const toSun = V(-Math.cos(az) * Math.cos(el), Math.sin(el), Math.sin(az) * Math.cos(el))
 
-  // ── objectives (y from the built collision; cast from just above the floor so the tower deck is skipped) ──
-  // The prop sits on the centre, so sample the floor a step to the side of it.
-  const objective = (d: (typeof DOM_FLAGS)[number], side: number): ObjectivePoint => {
-    const y = collision.groundHeight(d.x + side, d.z, d.y + 1.0, 3)
-    return { id: d.id, position: V(d.x, Number.isFinite(y) ? y : d.y, d.z), radius: d.radius }
-  }
-  const domFlags = DOM_FLAGS.map((d) => objective(d, 0.9))
-  const bombSites = BOMB_SITES.map((d) => objective(d, 1.8))
-  const by = collision.groundHeight(BOMB_SPAWN.x, BOMB_SPAWN.z, 30, 60)
-  const bombSpawn = V(BOMB_SPAWN.x, Number.isFinite(by) ? by + 0.05 : 0.1, BOMB_SPAWN.z)
-
-  const minimap = drawMinimap(BOUNDS, c.fp, TRACKS, [BIG_PIPE], { flags: domFlags, sites: bombSites })
-
   const menuCameraPath = [
-    { position: V(-27, 1.4, 17), target: V(-4, 5.5, 2) }, // low along the big pipe toward the tower
-    { position: V(-12, 2.2, 13), target: V(0, 7, 0) },
-    { position: V(10, 1.3, 13), target: V(-1, 6, -1) }, // under the pipe rack
-    { position: V(17, 2.0, -3), target: V(6, -0.5, -20) }, // across to the blue containers
-    { position: V(20, 3.2, -18), target: V(-6, 6, -2) },
-    { position: V(-10, 1.6, -18), target: V(-24, 9, -24) }, // derrick silhouette against the sky
-    { position: V(-18, 4.5, -4), target: V(2, 8, 2) },
-    { position: V(-22, 2.6, 19), target: V(0, 4, 0) },
+    { position: V(-22, 1.8, 20), target: V(2, 6, -2) }, // across the southwest yard to the tower
+    { position: V(-8, 2.4, 12), target: V(4, 7, -2) },
+    { position: V(12, 1.6, 14), target: V(19, 2, 20) }, // past the fuel tanks
+    { position: V(20, 2.2, 4), target: V(4, 5, -4) },
+    { position: V(22, 3.0, -12), target: V(-14, 12, -18) }, // derrick silhouette against the sky
+    { position: V(-4, 2.0, -11), target: V(-16, 14, -18) },
+    { position: V(-20, 3.5, -4), target: V(3, 6, 0) },
   ]
 
-  const dt = performance.now() - t0
   console.info(
-    `[rust] map built in ${dt.toFixed(0)} ms — ${merged.meshes} merged meshes, ${inst.meshes} instanced (${c.inst.count} inst), ` +
-      `vis tris ${(b.visTris / 1000).toFixed(0)}k + inst ${(inst.tris / 1000).toFixed(0)}k + terrain ${((terr.innerTris + terr.outerTris) / 1000).toFixed(0)}k, ` +
-      `col tris ${(b.colTris / 1000).toFixed(0)}k, ladders ${c.ladders.length}`,
+    `[rust] map built in ${(performance.now() - t0).toFixed(0)} ms — vis tris ${(geo.visTris / 1000).toFixed(0)}k, ` +
+      `col tris ${(geo.colTris / 1000).toFixed(0)}k, ${spawns.length} spawns, ladders ${LADDERS.length}`,
   )
 
   return {
@@ -186,13 +190,13 @@ export function buildRustMap(scene: Scene, collision: CollisionWorld): MapData {
     displayName: 'Rust',
     location: 'Oil yard, Afghanistan border',
     root,
-    bounds: { ...BOUNDS },
+    bounds,
     spawns,
     domFlags,
     bombSites,
     bombSpawn,
     sdAttackersFirst: SD_ATTACKERS_FIRST,
-    ladders: c.ladders,
+    ladders: LADDERS,
     nav: [],
     callouts,
     environment: {
@@ -207,7 +211,7 @@ export function buildRustMap(scene: Scene, collision: CollisionWorld): MapData {
       exposure: 1,
       haze: 0.55,
     },
-    minimap,
+    minimap: drawMinimap(bounds, domFlags, bombSites),
     menuCameraPath,
   }
 }

@@ -187,6 +187,7 @@ export class Bot implements Actor {
   private strafeDir = 0
   private strafeT = 0
   private advance = 0
+  private advanceT = 0
   private crouchT = 0
   private campYaw = 0
   private lookT = 0
@@ -765,22 +766,28 @@ export class Bot implements Actor {
     else if (def.class === 'sniper') (near = 14), (far = 90)
     else if (def.class === 'pistol' || def.class === 'machinePistol') (near = 3), (far = 14)
     const aggro = this.aggression
-    if (d > far) this.advance = 1
-    else if (d < near) this.advance = -1
-    else this.advance = Math.random() < aggro * 0.45 ? 1 : Math.random() < 0.3 ? -0.5 : 0
+    if (d > far) (this.advance = 1), (this.advanceT = 0)
+    else if (d < near) (this.advance = -1), (this.advanceT = 0)
+    else if ((this.advanceT -= 0.3) <= 0) {
+      // Inside the band: commit to push / hold / back off for a few seconds (re-rolling every think twitches).
+      this.advanceT = 1.5 + Math.random() * 2
+      this.advance = Math.random() < aggro * 0.45 ? 1 : Math.random() < 0.3 ? -0.5 : 0
+    }
     if (this.profile.sniper && this.slot === 'primary') this.advance = d < near ? -1 : 0
-    // Strafe rhythm (ADAD).
+    // Strafe rhythm: committed runs to one side with the odd plant or reversal.
     this.strafeT -= 0.3
     if (this.strafeT <= 0) {
-      this.strafeT = 0.35 + Math.random() * 0.9
+      this.strafeT = 0.9 + Math.random() * 1.6
       const r = Math.random()
-      this.strafeDir = r < 0.42 ? -1 : r < 0.84 ? 1 : 0
+      if (this.strafeDir === 0) this.strafeDir = r < 0.5 ? -1 : 1
+      else this.strafeDir = r < 0.5 ? -this.strafeDir : r < 0.8 ? 0 : this.strafeDir
+      if (this.strafeDir === 0) this.strafeT *= 0.6
       if (this.profile.sniper && this.slot === 'primary') this.strafeDir = 0
     }
     // Crouch-peek: sometimes crouch while firing, more when at a cover node.
     this.crouchT -= 0.3
     if (this.crouchT <= 0) {
-      this.crouchT = 0.8 + Math.random() * 1.6
+      this.crouchT = 1.6 + Math.random() * 2.4
       const n = this.nav.nearest(this.position.x, this.position.y, this.position.z, 1.5)
       const covered = n >= 0 && this.coverToward(n, t.position)
       const p = covered ? 0.65 : this.profile.sniper ? 0.5 : 0.18
@@ -1186,7 +1193,7 @@ export class Bot implements Actor {
         _dir.subVectors(this.threatPos, this.position)
         if (_dir.lengthSq() < 30 * 30) wantYaw = yawFromDirection(_dir.x, _dir.z)
       }
-      wantYaw += Math.sin(now * 0.7 + this.aimSeed) * (this.sprinting ? 0.1 : 0.35)
+      wantYaw += Math.sin(now * 0.45 + this.aimSeed) * (this.sprinting ? 0.04 : 0.14)
       wantPitch = 0
       rate = 3.5
     } else {
@@ -1923,7 +1930,8 @@ export class Bot implements Actor {
     const speedMul = this.stance !== 0 && !this.sprinting ? Math.min(1, low / Math.max(0.1, this.wishSpeed)) : 1
     const tx = this.wish.x * this.wishSpeed * speedMul
     const tz = this.wish.z * this.wishSpeed * speedMul
-    const accel = this.grounded ? (this.wishSpeed > 0.1 ? 38 : 30) : 4
+    // Human-scale inertia: a strafe reversal takes ~0.25 s instead of snapping in one frame.
+    const accel = this.grounded ? (this.wishSpeed > 0.1 ? 24 : 26) : 4
     const dvx = tx - v.x
     const dvz = tz - v.z
     const dl = Math.hypot(dvx, dvz)

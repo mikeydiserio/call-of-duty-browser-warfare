@@ -17,7 +17,7 @@ export class TitleCard {
   constructor() {
     this.el.insertAdjacentHTML(
       'beforeend',
-      `<div class="tc-line"></div>${WORDMARK}<div class="tc-sub">MULTIPLAYER &nbsp;//&nbsp; RUST</div><div class="tc-press">PRESS ANY KEY</div>`,
+      `<div class="tc-line"></div>${WORDMARK}<div class="tc-sub">MULTIPLAYER &nbsp;//&nbsp; RUST</div><div class="tc-press">PRESS ANY KEY</div><div class="tc-disclaimer">Not affiliated with Activision/Blizzard or Infinity Ward. Models were taken from publicly available resources. This game is free and is not distributed for profit.</div>`,
     )
   }
 
