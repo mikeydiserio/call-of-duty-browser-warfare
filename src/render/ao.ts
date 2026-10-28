@@ -23,9 +23,13 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
   if (depth >= 0.99999) { outputColor = inputColor; return; }
   vec3 P = aoViewPos(uv, depth);
   float dist = -P.z;
+  if (!(dist > 0.0) || !(dist < uFadeFar)) { outputColor = inputColor; return; }
   float fade = 1.0 - smoothstep(uFadeFar * 0.55, uFadeFar, dist);
   if (fade <= 0.0) { outputColor = inputColor; return; }
-  vec3 N = normalize(cross(dFdx(P), dFdy(P)));
+  vec3 rawN = cross(dFdx(P), dFdy(P));
+  float normalLengthSq = dot(rawN, rawN);
+  if (!(normalLengthSq > 1e-10) || !(normalLengthSq < 1e10)) { outputColor = inputColor; return; }
+  vec3 N = rawN * inversesqrt(normalLengthSq);
   // screen-space radius (uv units, y) of a uRadius sphere at this depth; clamp so close-ups stay cheap
   float rUv = min(uRadius * uProjScale.y * 0.5 / dist, 0.12);
   // 4x4 interleaved rotation keeps the pattern stable; SMAA + grain hide the residual

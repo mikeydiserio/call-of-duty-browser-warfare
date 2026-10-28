@@ -380,6 +380,7 @@ export class ClassScreen implements Screen {
       perks[s.tier] = id as PerkId
       l.perks = perks
     }
+    this.ctx.game.saveClasses()
     this.optIdx = i
     this.refreshSlots()
     this.paintOpts()
