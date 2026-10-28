@@ -22,8 +22,6 @@ import { TeamDeathmatchRules } from './modes/tdm'
 
 const _p = new Vector3()
 
-export type StreakId = 'uav' | 'airstrike'
-
 /** Plain-JSON snapshot of all mode state (for the net layer). Vectors are [x, y, z]. */
 export interface ModeNetState {
   id: GameModeId
@@ -85,8 +83,6 @@ export class GameMode {
   uavUntil: Record<Team, number> = { tf141: 0, opfor: 0 }
   /** FFA: game time at which each actor's own UAV expires (by actor id). */
   uavActorUntil: Record<number, number> = {}
-  /** Killstreak rewards waiting to be called in by the local player. */
-  playerStreaks: StreakId[] = []
   /** Team-mode winner. FFA: the player's team if the player won, the other team if not, 'draw' on a tie. */
   winner: Team | 'draw' | null = null
   /** FFA winner (null in team modes or on a tie). */
@@ -156,7 +152,6 @@ export class GameMode {
     this.timeLeft = this.game.match.timeLimit
     this.uavUntil = { tf141: 0, opfor: 0 }
     this.uavActorUntil = {}
-    this.playerStreaks = []
     this.winner = null
     this.winnerActor = null
     this.placingIds = []
@@ -243,7 +238,7 @@ export class GameMode {
 
   onKill(info: DamageInfo, suicide: boolean) {
     const killer = info.attacker
-    if (!suicide && killer && this.isEnemy(killer, info.victim)) this.checkStreak(killer)
+    if (!suicide) this.game.streaks.onKill(killer, info.victim)
     this.rules.onKill(info, suicide)
     if (this.phase === 'playing') this.scheduleRespawn(info.victim)
   }
@@ -254,14 +249,7 @@ export class GameMode {
     if (actor.isPlayer) this.game.events.emit('player:points', { amount, reason })
   }
 
-  // ─── Killstreaks / UAV ────────────────────────────────────────────────────
-
-  /** Player activates the oldest held killstreak. */
-  usePlayerStreak() {
-    const s = this.playerStreaks.shift()
-    if (!s) return
-    this.activateStreak(this.game.player, s)
-  }
+  // ─── UAV (rewards themselves live in game.streaks) ────────────────────────
 
   /**
    * Team UAV. In FFA there are no team UAVs: this is true only for the local player's
@@ -273,8 +261,9 @@ export class GameMode {
     return this.uavUntil[team] > this.game.time
   }
 
-  /** Whether `actor` currently benefits from a UAV (their team's, or their own in FFA). */
+  /** Whether `actor` currently benefits from a UAV (their team's, or their own in FFA). Counter-UAV / EMP jam it. */
   isUavActiveFor(actor: Actor) {
+    if (this.game.streaks.jammed(actor)) return false
     if (!this.isTeamMode) return (this.uavActorUntil[actor.id] ?? 0) > this.game.time
     return this.uavUntil[actor.team] > this.game.time
   }
@@ -284,29 +273,38 @@ export class GameMode {
     return target.alive && this.isEnemy(viewer, target) && this.isUavActiveFor(viewer)
   }
 
-  private checkStreak(killer: Actor) {
-    const streak = killer.stats.streak
-    let reward: StreakId | null = null
-    if (streak === CONFIG.uavStreak) reward = 'uav'
-    if (!reward) return
-    this.game.events.emit('killstreak:earned', { actor: killer, streak: reward })
-    if (killer.isPlayer) this.playerStreaks.push(reward)
-    else window.setTimeout(() => this.phase === 'playing' && this.activateStreak(killer, reward), 1500 + Math.random() * 2500)
-  }
-
-  activateStreak(actor: Actor, streak: StreakId) {
-    if (streak !== 'uav') return
+  /** UAV killstreak: 30 s sweep for the caller's team (the caller alone in FFA). */
+  activateUav(actor: Actor) {
     const team = actor.team
     if (!this.isTeamMode) {
       const until = Math.max(this.uavActorUntil[actor.id] ?? 0, this.game.time) + CONFIG.uavDuration
       this.uavActorUntil[actor.id] = until
-      this.game.events.emit('killstreak:used', { actor, streak, team })
       if (actor.isPlayer) this.game.events.emit('uav:changed', { team, active: true, until })
       return
     }
     this.uavUntil[team] = Math.max(this.uavUntil[team], this.game.time) + CONFIG.uavDuration
-    this.game.events.emit('killstreak:used', { actor, streak, team })
     this.game.events.emit('uav:changed', { team, active: true, until: this.uavUntil[team] })
+  }
+
+  /** The caller's UAV drone was shot down. */
+  cancelUav(actor: Actor) {
+    if (!this.isTeamMode) {
+      delete this.uavActorUntil[actor.id]
+      if (actor.isPlayer) this.game.events.emit('uav:changed', { team: actor.team, active: false, until: 0 })
+      return
+    }
+    this.cancelUavTeam(actor.team, null)
+  }
+
+  /** EMP: knock out a team's UAV (FFA: everyone's but `except`'s). */
+  cancelUavTeam(team: Team, except: Actor | null) {
+    if (!this.isTeamMode) {
+      for (const key in this.uavActorUntil) if (Number(key) !== except?.id) delete this.uavActorUntil[Number(key)]
+      return
+    }
+    if (this.uavUntil[team] <= 0) return
+    this.uavUntil[team] = 0
+    this.game.events.emit('uav:changed', { team, active: false, until: 0 })
   }
 
   // ─── Match end ────────────────────────────────────────────────────────────

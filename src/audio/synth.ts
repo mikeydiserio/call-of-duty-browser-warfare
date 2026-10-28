@@ -736,6 +736,130 @@ function uavOff(): Float32Array {
   return finalize(d, 0.6, 40)
 }
 
+// ─── Killstreak vehicles & ordnance ─────────────────────────────────────────
+
+function jetFlyby(rng: Rng): Float32Array {
+  const d = buf(4.2)
+  // Doppler: whine sweeping down past the listener over a broadband roar.
+  sweepNoise(d, 0, 4.0, 2.2, rng, 2600, 380, 1.4, riseFall(0.42))
+  sweepNoise(d, 0.2, 3.6, 3.4, rng, 900, 160, 0.8, riseFall(0.45))
+  noiseBurst(d, 1.5, 2.6, 0.9, 2.4, rng, [lp(220), lp(180)])
+  tone(d, 0, 1.9, 1900, 0.18, 1.2, 0.6, [0.2], 900)
+  return finalize(d, 0.85, 300, 200)
+}
+
+function jetHover(rng: Rng): Float32Array {
+  const d = buf(1.8)
+  sweepNoise(d, 0, 1.8, 1.6, rng, 1200, 1100, 1.2, () => 1)
+  noiseBurst(d, 0, 1.8, 3, 1.2, rng, [lp(300)])
+  tone(d, 0, 1.8, 2350, 0.12, 5, 0.1, [0.15])
+  return finalize(d, 0.6, 150, 150)
+}
+
+function rotorWash(rng: Rng): Float32Array {
+  const d = buf(1.75)
+  // Blade slap: dull thumps at ~6 Hz over turbine whine and wash.
+  for (let t = 0; t < 1.7; t += 0.165) {
+    noiseBurst(d, t, 0.09, 0.03, 1.6, rng, [lp(260), lp(200)])
+    pitchSine(d, t, 0.1, 85, 50, 0.04, 0.035, 0.7)
+  }
+  noiseBurst(d, 0, 1.75, 4, 0.5, rng, [bp(700, 0.6)])
+  tone(d, 0, 1.75, 1650, 0.05, 5, 0.1, [0.3])
+  return finalize(d, 0.7, 120, 120)
+}
+
+function propDrone(rng: Rng): Float32Array {
+  const d = buf(2.1)
+  tone(d, 0, 2.1, 72, 0.6, 6, 0.2, [0.5, 0.25, 0.12])
+  tone(d, 0, 2.1, 109, 0.3, 6, 0.2, [0.3])
+  noiseBurst(d, 0, 2.1, 6, 0.4, rng, [lp(500)])
+  return finalize(d, 0.55, 250, 250)
+}
+
+function heavyGun(rng: Rng, big: number): Float32Array {
+  const d = buf(0.35 + big * 0.5)
+  blastPulse(d, 1.6, 0.0016)
+  noiseBurst(d, 0, 0.08, 0.02, 1.5, rng, [bp(1100, 0.6)])
+  noiseBurst(d, 0, 0.3 + big * 0.4, 0.08 + big * 0.12, 1.8, rng, [lp(700), lp(500)])
+  pitchSine(d, 0, 0.3 + big * 0.4, 110, 38, 0.06, 0.1 + big * 0.12, 1.0)
+  saturate(d, 1.6)
+  return finalize(d, 0.9, 60)
+}
+
+function cannon105(rng: Rng): Float32Array {
+  const d = buf(2.6)
+  blastPulse(d, 2.4, 0.0028)
+  noiseBurst(d, 0, 0.25, 0.06, 2.0, rng, [bp(500, 0.6)])
+  noiseBurst(d, 0, 2.4, 0.7, 3.0, rng, [lp(240), lp(180)])
+  pitchSine(d, 0, 2.2, 70, 24, 0.4, 0.7, 1.2, 0.002, 0.25)
+  saturate(d, 1.8)
+  return finalize(d, 1.0, 200)
+}
+
+function missileRoar(rng: Rng): Float32Array {
+  const d = buf(2.6)
+  sweepNoise(d, 0, 2.6, 2.6, rng, 500, 2100, 0.9, riseFall(0.2))
+  noiseBurst(d, 0, 2.6, 1.6, 1.4, rng, [lp(400)])
+  noiseBurst(d, 0, 0.15, 0.04, 1.3, rng, [hp(1500)])
+  return finalize(d, 0.8, 300)
+}
+
+function deployClank(rng: Rng): Float32Array {
+  const d = buf(0.9)
+  metalClick(d, 0, rng, 1.2, 1800)
+  metalClick(d, 0.18, rng, 0.9, 2600)
+  ring(d, 0.35, [640, 1180, 2210], [0.25, 0.15, 0.09], 0.35)
+  tone(d, 0.5, 0.35, 900, 0.25, 0.2, 0.01, [0.2], 1500)
+  return finalize(d, 0.6, 40)
+}
+
+function crateThud(rng: Rng): Float32Array {
+  const d = buf(0.8)
+  pitchSine(d, 0, 0.6, 95, 40, 0.08, 0.15, 1.2)
+  noiseBurst(d, 0, 0.4, 0.09, 1.4, rng, [lp(600)])
+  noiseBurst(d, 0.02, 0.3, 0.06, 0.5, rng, [bp(1400, 0.8)])
+  return finalize(d, 0.8, 60)
+}
+
+function captureBeep(): Float32Array {
+  const d = buf(0.5)
+  squareTone(d, 0, 0.09, 1320, 0.45)
+  squareTone(d, 0.13, 0.16, 1760, 0.5)
+  return finalize(d, 0.55, 30)
+}
+
+function laptopOpen(rng: Rng): Float32Array {
+  const d = buf(0.9)
+  for (let i = 0; i < 6; i++) noiseBurst(d, 0.05 + i * 0.07 + rng.range(0, 0.02), 0.02, 0.004, 0.6, rng, [bp(3200, 1.5)])
+  squareTone(d, 0.55, 0.12, 980, 0.35)
+  return finalize(d, 0.5, 30)
+}
+
+function empBlast(rng: Rng): Float32Array {
+  const d = buf(2.2)
+  tone(d, 0, 1.8, 3200, 0.6, 0.6, 0.002, [0.4, 0.2], 90)
+  for (let i = 0; i < 26; i++) noiseBurst(d, rng.range(0, 1.4), 0.03, 0.008, rng.range(0.4, 1.0), rng, [hp(2500)])
+  noiseBurst(d, 0, 2.0, 0.6, 1.3, rng, [lp(300)])
+  return finalize(d, 0.85, 200)
+}
+
+function siren(): Float32Array {
+  const d = buf(2.5)
+  tone(d, 0, 1.25, 420, 0.5, 9, 0.05, [0.35, 0.15], 880)
+  tone(d, 1.25, 1.25, 880, 0.5, 9, 0.01, [0.35, 0.15], 420)
+  return finalize(d, 0.75, 120, 60)
+}
+
+function nukeBlast(rng: Rng): Float32Array {
+  const d = buf(7.5)
+  blastPulse(d, 3, 0.006)
+  noiseBurst(d, 0, 7.2, 2.4, 4.0, rng, [lp(140), lp(110)])
+  noiseBurst(d, 0, 3.5, 1.0, 2.0, rng, [lp(900)])
+  pitchSine(d, 0, 6.0, 55, 18, 1.6, 2.2, 1.4, 0.004, 0.3)
+  saturate(d, 2.0)
+  return finalize(d, 1.0, 900)
+}
+
 function radioAnnounce(rng: Rng): Float32Array {
   const d = buf(0.5)
   squelch(d, 0, rng, 0.7)
@@ -1010,6 +1134,28 @@ export function buildCoreJobs(): Job[] {
   add('ks.used', 1, 5, (_i, r) => streakUsed(r))
   add('uav.on', 1, 5, () => uavOn())
   add('uav.off', 1, 5, () => uavOff())
+  add('ks.jet', 2, 5, (_i, r) => jetFlyby(r))
+  add('ks.jet.hover', 1, 5, (_i, r) => jetHover(r))
+  add('ks.rotor', 2, 5, (_i, r) => rotorWash(r))
+  add('ks.drone', 1, 5, (_i, r) => propDrone(r))
+  add('ks.chain', 3, 5, (_i, r) => heavyGun(r, 0))
+  add('ks.ac.40', 2, 5, (_i, r) => heavyGun(r, 1))
+  add('ks.ac.105', 1, 5, (_i, r) => cannon105(r))
+  add('ks.ac.switch', 1, 5, (_i, r) => {
+    const d = buf(0.2)
+    metalClick(d, 0, r, 1, 2000)
+    metalClick(d, 0.08, r, 0.7, 2900)
+    return finalize(d, 0.5, 20)
+  })
+  add('ks.turret', 3, 5, (_i, r) => heavyGun(r, 0))
+  add('ks.missile', 1, 5, (_i, r) => missileRoar(r))
+  add('ks.place', 1, 5, (_i, r) => deployClank(r))
+  add('ks.crate', 1, 5, (_i, r) => crateThud(r))
+  add('ks.capture', 1, 5, () => captureBeep())
+  add('ks.laptop', 1, 5, (_i, r) => laptopOpen(r))
+  add('ks.emp', 1, 5, (_i, r) => empBlast(r))
+  add('ks.siren', 1, 5, () => siren())
+  add('ks.nuke', 1, 5, (_i, r) => nukeBlast(r))
   add('radio', 3, 5, (_i, r) => radioAnnounce(r))
   add('heart', 2, 5, (_i, r) => heartbeat(r))
   add('breath', 2, 5, (_i, r) => breath(r))

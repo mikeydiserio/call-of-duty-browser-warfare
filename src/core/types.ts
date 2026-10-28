@@ -4,6 +4,7 @@
  * keep it local and report it to the integrator.
  */
 import type { Object3D, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three'
+import type { KillstreakId } from '../game/killstreaks/defs'
 
 // ─── Teams & actors ─────────────────────────────────────────────────────────
 
@@ -129,6 +130,8 @@ export interface DamageInfo {
   direction: Vector3
   point: Vector3
   explosive: boolean
+  /** Set when a killstreak reward dealt the damage (killfeed icon, MW2 streak chaining). */
+  killstreak?: KillstreakId
 }
 
 // ─── World ──────────────────────────────────────────────────────────────────
@@ -314,6 +317,8 @@ export interface InputState {
   scoreboard: boolean // Tab held
   pausePressed: boolean // Esc / P
   killstreakPressed: boolean // 4
+  /** Cycle the selected killstreak reward (3). Optional so synthetic input states need not set it. */
+  streakCyclePressed?: boolean
 }
 
 // ─── Renderer contract (render/) ────────────────────────────────────────────
@@ -336,4 +341,6 @@ export interface Loadout {
   primary: WeaponId
   secondary: WeaponId
   perks: PerkId[]
+  /** Three killstreak rewards (MW2). Older saves lack it; read through normalizeKillstreaks(). */
+  killstreaks?: KillstreakId[]
 }

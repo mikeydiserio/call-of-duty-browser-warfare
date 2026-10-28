@@ -1,5 +1,6 @@
 import type { Game } from '../core/game'
 import type { Loadout, MatchSettings, NetRole, Team } from '../core/types'
+import { normalizeKillstreaks } from '../game/killstreaks/defs'
 import { ClientSession } from './client'
 import { HostSession, type HostPeer } from './host'
 import type { LobbyInfo, LobbyPlayer, LobbyService, LobbyState } from './lobby'
@@ -492,7 +493,12 @@ export class OnlineLobby implements LobbyService {
 function sanitizeLoadout(l: Loadout | undefined): Loadout {
   const ok = (id: unknown) => typeof id === 'string'
   if (!l || !ok(l.primary) || !ok(l.secondary)) return { primary: 'm4a1', secondary: 'usp45', perks: [] }
-  return { primary: l.primary, secondary: l.secondary, perks: Array.isArray(l.perks) ? l.perks.slice(0, 3) : [] }
+  return {
+    primary: l.primary,
+    secondary: l.secondary,
+    perks: Array.isArray(l.perks) ? l.perks.slice(0, 3) : [],
+    killstreaks: normalizeKillstreaks(Array.isArray(l.killstreaks) ? l.killstreaks : undefined),
+  }
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))

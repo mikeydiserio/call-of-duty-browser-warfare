@@ -1,4 +1,5 @@
 import type { Loadout, PerkId, WeaponId } from '../core/types'
+import { KILLSTREAK_IDS, KILLSTREAKS, killstreakSvg, normalizeKillstreaks, type KillstreakId } from '../game/killstreaks/defs'
 import { PRIMARIES, SECONDARIES, WEAPONS } from '../weapons/defs'
 import { WeaponPreview, weaponThumbnail } from '../weapons/preview'
 import { CLASS_LABEL, PERK_TIERS, PERKS, WEAPON_BLURB, weaponStats, type WeaponStats } from './data'
@@ -8,7 +9,7 @@ import { keyHints, type Screen, type UiCtx } from './screen'
 
 const LOADOUT_KEY = 'mw-rust-loadout'
 
-type Slot = { kind: 'primary' } | { kind: 'secondary' } | { kind: 'perk'; tier: 0 | 1 | 2 }
+type Slot = { kind: 'primary' } | { kind: 'secondary' } | { kind: 'perk'; tier: 0 | 1 | 2 } | { kind: 'streak'; idx: 0 | 1 | 2 }
 
 const SLOTS: { slot: Slot; label: string }[] = [
   { slot: { kind: 'primary' }, label: 'PRIMARY WEAPON' },
@@ -16,6 +17,9 @@ const SLOTS: { slot: Slot; label: string }[] = [
   { slot: { kind: 'perk', tier: 0 }, label: 'PERK 1' },
   { slot: { kind: 'perk', tier: 1 }, label: 'PERK 2' },
   { slot: { kind: 'perk', tier: 2 }, label: 'PERK 3' },
+  { slot: { kind: 'streak', idx: 0 }, label: 'KILLSTREAK 1' },
+  { slot: { kind: 'streak', idx: 1 }, label: 'KILLSTREAK 2' },
+  { slot: { kind: 'streak', idx: 2 }, label: 'KILLSTREAK 3' },
 ]
 
 const STAT_ROWS: [keyof WeaponStats, string][] = [
@@ -116,6 +120,7 @@ export class ClassScreen implements Screen {
     const l = this.loadout
     if (s.kind === 'primary') return l.primary
     if (s.kind === 'secondary') return l.secondary
+    if (s.kind === 'streak') return normalizeKillstreaks(l.killstreaks)[s.idx]!
     return l.perks[s.tier] ?? PERK_TIERS[s.tier]![0]!
   }
 
@@ -123,6 +128,7 @@ export class ClassScreen implements Screen {
     const s = SLOTS[i]!.slot
     if (s.kind === 'primary') return PRIMARIES
     if (s.kind === 'secondary') return SECONDARIES
+    if (s.kind === 'streak') return KILLSTREAK_IDS
     return PERK_TIERS[s.tier]!
   }
 
@@ -158,6 +164,9 @@ export class ClassScreen implements Screen {
       if (s.slot.kind === 'perk') {
         name.textContent = PERKS[v as PerkId].name.toUpperCase()
         ico.innerHTML = perkSvg(v as PerkId)
+      } else if (s.slot.kind === 'streak') {
+        name.textContent = `${KILLSTREAKS[v as KillstreakId].name.toUpperCase()}  (${KILLSTREAKS[v as KillstreakId].kills})`
+        ico.innerHTML = killstreakSvg(v as KillstreakId)
       } else {
         name.textContent = WEAPONS[v as WeaponId].name.toUpperCase()
         ico.innerHTML = weaponImg(v as WeaponId)
@@ -180,13 +189,18 @@ export class ClassScreen implements Screen {
     const o = this.optsEl
     o.textContent = ''
     const s = SLOTS[this.slotIdx]!
-    el('div', 'panel-title', o, s.slot.kind === 'perk' ? `TIER ${s.slot.tier + 1} PERK` : s.label)
+    el('div', 'panel-title', o, s.slot.kind === 'perk' ? `TIER ${s.slot.tier + 1} PERK` : s.slot.kind === 'streak' ? 'KILLSTREAK REWARD' : s.label)
+    const taken = s.slot.kind === 'streak' ? normalizeKillstreaks(this.loadout.killstreaks) : []
     this.optIds.forEach((id, i) => {
       const b = el('button', 'opt', o)
       b.type = 'button'
       if (s.slot.kind === 'perk') {
         const p = PERKS[id as PerkId]
         b.innerHTML = `<span class="o-ico">${perkSvg(p.id)}</span><span class="o-txt"><span class="o-name">${p.name.toUpperCase()}</span><span class="o-sub">${p.desc}</span></span><span class="o-tick"></span>`
+      } else if (s.slot.kind === 'streak') {
+        const k = KILLSTREAKS[id as KillstreakId]
+        const inUse = taken.includes(k.id) && taken[s.slot.idx] !== k.id
+        b.innerHTML = `<span class="o-ico">${killstreakSvg(k.id)}</span><span class="o-txt"><span class="o-name">${k.name.toUpperCase()}</span><span class="o-sub">${k.kills} KILLS${inUse ? ' · IN USE' : ''}</span></span><span class="o-tick"></span>`
       } else {
         const w = WEAPONS[id as WeaponId]
         b.innerHTML = `<span class="o-ico wide">${weaponImg(w.id)}</span><span class="o-txt"><span class="o-name">${w.name.toUpperCase()}</span><span class="o-sub">${CLASS_LABEL[w.class] ?? ''}</span></span><span class="o-tick"></span>`
@@ -209,6 +223,8 @@ export class ClassScreen implements Screen {
       setClass(b, 'sel', this.focus === 'opts' && i === this.optIdx)
       setClass(b, 'equipped', this.optIds[i] === cur)
     })
+    // The killstreak list is longer than the panel: keep the highlighted row in view.
+    opts[this.optIdx]?.scrollIntoView({ block: 'nearest' })
   }
 
   private equip(i: number) {
@@ -219,7 +235,16 @@ export class ClassScreen implements Screen {
     const l = this.loadout
     if (s.kind === 'primary') l.primary = id as WeaponId
     else if (s.kind === 'secondary') l.secondary = id as WeaponId
-    else {
+    else if (s.kind === 'streak') {
+      // Picking one already in another slot swaps the two (three unique rewards, MW2).
+      const ks = normalizeKillstreaks(l.killstreaks)
+      const other = ks.indexOf(id as KillstreakId)
+      if (other >= 0) ks[other] = ks[s.idx]!
+      ks[s.idx] = id as KillstreakId
+      l.killstreaks = normalizeKillstreaks(ks)
+      this.buildOpts()
+      this.optIdx = Math.max(0, this.optIds.indexOf(id))
+    } else {
       const perks = l.perks.slice()
       perks[s.tier] = id as PerkId
       l.perks = perks
@@ -231,6 +256,16 @@ export class ClassScreen implements Screen {
   }
 
   private preview(id: string) {
+    if (id in KILLSTREAKS) {
+      const k = KILLSTREAKS[id as KillstreakId]
+      setClass(this.el, 'perk-view', true)
+      this.pv3d.style.visibility = 'hidden'
+      this.pvPerk.innerHTML = killstreakSvg(k.id, 'big')
+      this.pvType.textContent = `${k.kills} KILLSTREAK`
+      this.pvName.textContent = k.name.toUpperCase()
+      this.pvDesc.textContent = k.desc
+      return
+    }
     const isPerk = id in PERKS
     setClass(this.el, 'perk-view', isPerk)
     if (isPerk) {

@@ -3,6 +3,7 @@ import type { GameEvents, MatchPhase } from '../core/events'
 import type { Game } from '../core/game'
 import type { Actor, DamageInfo, ObjectiveState, Team, WeaponId } from '../core/types'
 import { actorFlags } from './host'
+import type { KillstreakId } from '../game/killstreaks/defs'
 import type { NetHooks } from './hooks'
 import type { PeerLink } from './peer'
 import { decodeSnapshot, decodeValue, encodePose, MSG_SNAPSHOT, type ReliableMsg, type RosterEntry, type Snapshot, v3 } from './protocol'
@@ -154,6 +155,14 @@ export class ClientSession implements NetHooks {
 
   perksOf(): null {
     return null
+  }
+
+  killstreaksOf(): null {
+    return null
+  }
+
+  onKillstreak(id: KillstreakId, target?: [number, number, number], heading?: number) {
+    this.outbox.push({ t: 'ks', id, p: target, h: heading })
   }
 
   update(dt: number) {

@@ -1027,6 +1027,23 @@ export class AudioEngine {
       if (g && actor.isPlayer) this.play('ks.used', { bus: g.inner, gain: 0.85, prio: 170 })
     })
 
+    ev.on('killstreak:sound', ({ key, pos, gain = 1 }) => {
+      const g = this.g
+      if (!g || !this.running()) return
+      if (key.startsWith('ui.')) {
+        this.play(key, { bus: g.ui, gain: 0.6 * gain, prio: 200 })
+        return
+      }
+      // Big airborne sources carry a long way; ordnance gets the weapons bus.
+      const loud = key === 'ks.jet' || key === 'ks.ac.105' || key === 'ks.nuke' || key === 'ks.drone'
+      const bus = key === 'ks.chain' || key === 'ks.turret' || key.startsWith('ks.ac') ? g.weapons : g.sfx
+      if (!pos || key === 'ks.siren' || key === 'ks.nuke' || key === 'ks.emp' || key === 'ks.laptop' || key === 'ks.capture') {
+        this.play(key, { bus: key === 'ks.siren' || key === 'ks.nuke' ? g.sfx : g.inner, gain: gain, prio: 190 })
+        return
+      }
+      this.play(key, { bus, pos, gain: gain * 1.1, ref: loud ? 60 : 18, rolloff: loud ? 0.6 : 0.9, prio: loud ? 180 : 120, send: 0.3, air: true })
+    })
+
     ev.on('uav:changed', ({ team, active }) => {
       const g = this.g
       if (!g) return

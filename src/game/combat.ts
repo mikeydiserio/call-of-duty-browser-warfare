@@ -60,6 +60,16 @@ export class Combat {
       worldHit = world.raycast(start, dir, remaining)
       const maxD = worldHit ? worldHit.distance : remaining
       actorHit = this.raycastActors(shooter, start, dir, maxD)
+      // Enemy air support / sentries in the way take the round instead.
+      const ks = this.game.streaks.raycastEnts(shooter, start, dir, actorHit ? actorHit.hit.distance : maxD)
+      if (ks) {
+        const point = start.clone().addScaledVector(dir, ks.distance)
+        if (tracer) this.game.events.emit('bullet:tracer', { from: tracerFrom ?? origin, to: point, shooter })
+        this.game.events.emit('bullet:impact', { point, normal: dir.clone().negate(), surface: 'metal', shooter })
+        this.game.streaks.damageEnt(ks.ent, damageAt(def, travelled + ks.distance) * damageScale * this.stoppingPower(shooter), shooter)
+        shooter.stats.shotsHit++
+        return { actor: null, world: null, point }
+      }
       if (actorHit) break
       if (!worldHit) break
       this.game.events.emit('bullet:impact', { point: worldHit.point, normal: worldHit.normal, surface: worldHit.surface, shooter })

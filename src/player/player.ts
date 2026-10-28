@@ -290,12 +290,17 @@ export class Player implements Actor {
       return
     }
     const p = this.position
-    const canAct = g.mode.phase === 'playing'
+    // Laptop map / remote-control view: the soldier stands still (and stays shootable).
+    const frozen = g.streaks.freezesPlayer
+    const canAct = g.mode.phase === 'playing' && !frozen
     this.timeSinceSpawn += dt
     this.landImpact = 0
     this.jumpedThisFrame = false
 
-    this.updateLook(dt, s)
+    if (frozen) {
+      this.idleInput.lookDX = this.idleInput.lookDY = 0
+      this.updateLook(dt, this.idleInput)
+    } else this.updateLook(dt, s)
 
     const wishX = canAct ? s.moveX : 0
     const wishY = canAct ? s.moveY : 0
@@ -327,8 +332,6 @@ export class Player implements Actor {
     this.finishMovement(dt, px, pz)
     this.updateFeel(dt, wishX)
 
-    if (canAct && s.killstreakPressed) g.mode.usePlayerStreak()
-
     // Weapons
     const m = this.move
     const mob = this.weapons.mobility * (this.hasPerk('lightweight') ? T.lightweight : 1)
@@ -342,7 +345,7 @@ export class Player implements Actor {
     m.onLadder = this.ladder !== null || this.mantling || this.dismountT >= 0
     m.lookDX = s.lookDX
     m.lookDY = s.lookDY
-    this.weapons.update(dt, canAct ? s : this.idleInputFrom(s), m)
+    this.weapons.update(dt, canAct && !g.streaks.blocksWeapons ? s : this.idleInputFrom(s), m)
 
     this.updateEffects(dt)
     this.camEye = this.eyeH + this.stepOffset + this.landDip.value + this.bobY - this.mantleTilt * 0.22
@@ -1076,6 +1079,11 @@ export class Player implements Actor {
       'YXZ',
     )
     this.applyFov(dt)
+  }
+
+  /** A killstreak view changed the camera FOV: re-apply ours next frame. */
+  invalidateFov() {
+    this.lastFov = -1
   }
 
   /** settings.fov is horizontal; convert at the live aspect, then apply ADS zoom + sprint kick. */

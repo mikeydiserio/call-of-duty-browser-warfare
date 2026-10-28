@@ -47,6 +47,10 @@ export interface ScreenEffects {
   menu: number
   /** Camera shake strength injected by explosions (decays in renderer). */
   shake: number
+  /** 0..1 killstreak thermal camera grade. */
+  thermal: number
+  /** 0..1 video static burst (decays in renderer). */
+  static: number
 }
 
 export type Quality = 'low' | 'medium' | 'high'
@@ -112,7 +116,7 @@ export class GameRenderer implements RenderContext {
   readonly camera = new PerspectiveCamera(80, innerWidth / innerHeight, 0.05, 1200)
   readonly viewmodelScene = new Scene()
   readonly viewmodelCamera = new PerspectiveCamera(55, innerWidth / innerHeight, 0.01, 10)
-  readonly effects: ScreenEffects = { damage: 0, flash: 0, dead: 0, ads: 0, menu: 0, shake: 0 }
+  readonly effects: ScreenEffects = { damage: 0, flash: 0, dead: 0, ads: 0, menu: 0, shake: 0, thermal: 0, static: 0 }
 
   readonly composer: EffectComposer
   readonly sun = new DirectionalLight(0xffffff, 3)
@@ -446,6 +450,9 @@ export class GameRenderer implements RenderContext {
     this.fx.set('uDead', this.sDead)
     this.fx.set('uMenu', this.sMenu)
     this.fx.set('uAds', this.sAds)
+    this.fx.set('uThermal', fx.thermal)
+    fx.static = Math.max(0, fx.static - dt * 2.2)
+    this.fx.set('uStatic', Math.min(1, fx.static))
 
     // camera trauma shake — applied for this render only, then restored
     const trauma = Math.min(1.5, Math.max(0, fx.shake))

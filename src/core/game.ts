@@ -2,6 +2,8 @@ import { Vector3, type Material, type Mesh } from 'three'
 import { BotManager } from '../ai/bots'
 import { AudioEngine } from '../audio/audio'
 import { Combat } from '../game/combat'
+import { DEFAULT_KILLSTREAKS } from '../game/killstreaks/defs'
+import { KillstreakManager } from '../game/killstreaks/manager'
 import { GameMode } from '../game/mode'
 import { Player } from '../player/player'
 import { Effects } from '../render/fx/effects'
@@ -44,6 +46,8 @@ export class Game {
   map: MapData
   readonly combat: Combat
   readonly mode: GameMode
+  /** Killstreak rewards (MW2): inventory, call-ins and everything they put in the world. */
+  readonly streaks: KillstreakManager
   readonly player: Player
   readonly bots: BotManager
   readonly fx: Effects
@@ -84,7 +88,7 @@ export class Game {
       quality: 'high',
       fullscreen: true,
     })
-    this.loadout = loadJSON<Loadout>(LOADOUT_KEY, { primary: 'acr', secondary: 'usp45', perks: ['sleightOfHand', 'stoppingPower', 'commando'] })
+    this.loadout = loadJSON<Loadout>(LOADOUT_KEY, { primary: 'acr', secondary: 'usp45', perks: ['sleightOfHand', 'stoppingPower', 'commando'], killstreaks: DEFAULT_KILLSTREAKS })
 
     this.render = new GameRenderer(container)
     this.input = new Input(this.render.renderer.domElement)
@@ -94,6 +98,7 @@ export class Game {
 
     this.combat = new Combat(this)
     this.mode = new GameMode(this)
+    this.streaks = new KillstreakManager(this)
     this.player = new Player(this)
     this.bots = new BotManager(this)
     this.fx = new Effects(this)
@@ -268,6 +273,7 @@ export class Game {
         if (this.netRole !== 'client') this.bots.update(dt)
         this.combat.update(dt)
       }
+      this.streaks.update(dt)
       if (phase === 'ended') {
         this.endTimer += rawDt
         if (this.endTimer > 2.5 && this.input.enabled) {

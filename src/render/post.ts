@@ -20,6 +20,8 @@ uniform float uCA;
 uniform float uVignette;
 uniform float uHaze;
 uniform float uBlurMax;
+uniform float uThermal;
+uniform float uStatic;
 uniform sampler2D tBlood;
 
 float h21(vec2 p){
@@ -109,6 +111,16 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   g = pow(g, vec3(1.0 / 1.04));
   g = g * vec3(1.02, 1.0, 0.975) + vec3(0.004, 0.006, 0.010) * (1.0 - g);
 
+  // ---- killstreak thermal camera (Predator / Chopper Gunner / AC-130): white-hot mono --
+  if (uThermal > 0.002) {
+    float l = dot(g, vec3(0.299, 0.587, 0.114));
+    float th = smoothstep(0.04, 0.8, l);
+    th = th * th * (3.0 - 2.0 * th);
+    vec3 mono = vec3(th) * vec3(0.9, 0.96, 1.0) + vec3(0.02, 0.025, 0.03);
+    float scan = 0.96 + 0.04 * sin(uv.y * resolution.y * 1.6);
+    g = mix(g, mono * scan, uThermal);
+  }
+
   // ---- vignette --------------------------------------------------------------------
   float vig = smoothstep(0.30, 1.18, r);
   g *= 1.0 - vig * (uVignette + uAds * 0.30);
@@ -147,6 +159,13 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   float n2 = h21(uv * resolution * 0.5 + fract(uTime * 3.7) * 311.0) - 0.5;
   g += (n * 0.7 + n2 * 0.3) * uGrain * (0.8 - abs(luma - 0.45) * 0.7);
 
+  // ---- video static (camera feed switching, EMP) ------------------------------------
+  if (uStatic > 0.002) {
+    float band = step(0.9, h21(vec2(floor(uv.y * 70.0), floor(uTime * 22.0))));
+    float nz = h21(uv * resolution * 0.5 + fract(uTime * 13.0) * 400.0);
+    g = mix(g, vec3(nz), clamp(uStatic * (0.55 + band * 0.45), 0.0, 1.0));
+  }
+
   // ---- flashbang / explosion white-out ----------------------------------------------
   if (uFlash > 0.002) {
     float f = smoothstep(0.0, 1.0, uFlash);
@@ -176,6 +195,8 @@ export class ScreenFXEffect extends Effect {
         ['uVignette', new Uniform(0.52)],
         ['uHaze', new Uniform(0.5)],
         ['uBlurMax', new Uniform(1)],
+        ['uThermal', new Uniform(0)],
+        ['uStatic', new Uniform(0)],
         ['tBlood', new Uniform(bloodTexture)],
       ]),
     })

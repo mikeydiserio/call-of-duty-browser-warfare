@@ -18,6 +18,7 @@ export class Minimap {
   /** Actor id -> realTime at which its "spotted" flash expires. */
   private spotted = new Map<number, number>()
   private scale = 1
+  private contacts: { x: number; z: number; yaw: number; friendly: boolean; heli: boolean }[] = []
 
   constructor(private game: Game) {
     this.el = el('div', 'hud-minimap')
@@ -154,6 +155,13 @@ export class Minimap {
     // Bomb carrier / dropped / planted bomb (S&D)
     this.drawBomb(toScreen, pt)
 
+    // Air support (killstreak helicopters, jets, gunships; the Stealth Bomber stays off radar)
+    for (const c of g.streaks.radarContacts(this.contacts)) {
+      toScreen(c.x, c.z, pt)
+      if (pt.x < -10 || pt.y < -10 || pt.x > S + 10 || pt.y > S + 10) continue
+      this.aircraft(pt.x, pt.y, yaw - c.yaw, c.heli, c.friendly ? FRIEND : ENEMY)
+    }
+
     // Player
     this.arrow(S / 2, S / 2, 0, 9.5, '#ffffff')
 
@@ -182,6 +190,51 @@ export class Minimap {
       ctx.fillStyle = major ? '#ffffff' : 'rgba(255,255,255,.65)'
       ctx.fillText(label, x, y + 0.5)
     }
+    if (g.streaks.jammed(player)) this.drawStatic(S)
+  }
+
+  /** Killstreak aircraft glyph: rotor disc for helicopters, delta for jets. */
+  private aircraft(x: number, y: number, rot: number, heli: boolean, color: string) {
+    const ctx = this.ctx
+    ctx.save()
+    ctx.translate(x, y)
+    ctx.rotate(rot)
+    ctx.fillStyle = color
+    ctx.strokeStyle = color
+    ctx.lineWidth = 1.4
+    if (heli) {
+      ctx.beginPath()
+      ctx.arc(0, 0, 8, 0, Math.PI * 2)
+      ctx.globalAlpha = 0.35
+      ctx.fill()
+      ctx.globalAlpha = 1
+      ctx.fillRect(-2, -7, 4, 14)
+    } else {
+      ctx.beginPath()
+      ctx.moveTo(0, -9)
+      ctx.lineTo(8, 6)
+      ctx.lineTo(0, 3)
+      ctx.lineTo(-8, 6)
+      ctx.closePath()
+      ctx.fill()
+    }
+    ctx.restore()
+  }
+
+  /** Counter-UAV / EMP: the radar is nothing but noise. */
+  private drawStatic(S: number) {
+    const ctx = this.ctx
+    const t = this.game.realTime
+    ctx.fillStyle = '#0c0f09'
+    ctx.fillRect(0, 0, S, S)
+    for (let i = 0; i < 260; i++) {
+      const v = Math.floor(Math.random() * 200)
+      ctx.fillStyle = `rgba(${v},${v},${v},0.55)`
+      ctx.fillRect(Math.random() * S, Math.random() * S, 2 + Math.random() * 5, 1.5)
+    }
+    const band = ((t * 90) % (S + 30)) - 15
+    ctx.fillStyle = 'rgba(200,200,200,0.12)'
+    ctx.fillRect(0, band, S, 14)
   }
 
   private drawObjectives(toScreen: (x: number, z: number, o: { x: number; y: number }) => void, pt: { x: number; y: number }) {

@@ -688,7 +688,7 @@
 .cac-slots {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 .cac-slot {
   position: relative;
@@ -696,8 +696,8 @@
   grid-template-columns: 1fr 150px;
   grid-template-rows: auto auto;
   align-items: center;
-  height: 104px;
-  padding: 10px 16px 10px 22px !important;
+  height: 82px;
+  padding: 8px 16px 8px 22px !important;
   background: rgba(10, 12, 9, 0.66) !important;
   border: 1px solid var(--line) !important;
   transition: background 0.12s, border-color 0.12s;
@@ -736,7 +736,7 @@
   grid-column: 1;
   font-family: var(--f-head);
   font-weight: 700;
-  font-size: 32px;
+  font-size: 28px;
   line-height: 1.05;
   letter-spacing: 0.04em;
   color: #fff;
@@ -745,7 +745,7 @@
 .cs-ico {
   grid-column: 2;
   grid-row: 1 / span 2;
-  height: 70px;
+  height: 60px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -756,9 +756,10 @@
   width: 150px;
   height: 56px;
 }
-.cs-ico .picon {
-  width: 60px;
-  height: 60px;
+.cs-ico .picon,
+.cs-ico .ksicon {
+  width: 54px;
+  height: 54px;
 }
 
 .cac-preview {
@@ -783,7 +784,8 @@
   width: 92%;
   height: 210px;
 }
-.pv-art .picon.big {
+.pv-art .picon.big,
+.pv-art .ksicon.big {
   width: 170px;
   height: 170px;
 }
@@ -867,7 +869,10 @@
 .cac-opts {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(166, 185, 85, 0.5) transparent;
 }
 .opt {
   position: relative;
@@ -902,7 +907,8 @@
   justify-content: center;
   color: #e3e6d8;
 }
-.o-ico .picon {
+.o-ico .picon,
+.o-ico .ksicon {
   width: 50px;
   height: 50px;
 }
@@ -2228,65 +2234,219 @@
   100% { opacity: 0; transform: scale(0.97); }
 }
 
-/* killstreak */
-.hud-streak {
+/* killstreaks: MW2 reward column on the right edge */
+.ks-hud {
   position: absolute;
-  right: 34px;
-  bottom: 196px;
-  display: grid;
-  grid-template-columns: auto auto;
-  grid-template-rows: auto auto;
-  align-items: center;
-  column-gap: 10px;
+  inset: 0;
+  pointer-events: none;
+}
+.ks-col {
+  position: absolute;
+  right: 30px;
+  bottom: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
   opacity: 0;
   transition: opacity 0.3s;
 }
-.hud-streak.on {
+.ks-col.on {
   opacity: 1;
 }
-.hud-streak.pop {
-  animation: pop 0.6s cubic-bezier(0.2, 0.9, 0.2, 1);
+.ks-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.38);
+  transition: color 0.2s, transform 0.2s;
 }
-@keyframes pop {
-  0% { transform: scale(1.8); }
-  100% { transform: none; }
+.ks-n {
+  font-family: var(--f-num);
+  font-size: 16px;
+  min-width: 18px;
+  text-align: right;
 }
-.st-ico {
-  grid-row: 1 / span 2;
-  width: 58px;
-  height: 58px;
-  padding: 6px;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 227, 90, 0.7);
-  box-shadow: 0 0 14px rgba(255, 227, 90, 0.4);
+.ks-i {
+  width: 44px;
+  height: 44px;
+  padding: 5px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
-.st-ico .gicon {
+.ks-i .ksicon {
   width: 100%;
   height: 100%;
+  display: block;
 }
-.st-name {
+.ks-x {
+  position: absolute;
+  margin-left: -14px;
+  margin-top: -36px;
+  font-family: var(--f-num);
+  font-size: 15px;
+  color: var(--you);
+}
+.ks-row.reached {
+  color: rgba(255, 255, 255, 0.7);
+}
+.ks-row.held {
+  color: #fff;
+}
+.ks-row.held .ks-i {
+  border-color: rgba(255, 227, 90, 0.75);
+  box-shadow: 0 0 12px rgba(255, 227, 90, 0.35);
+}
+.ks-row.sel {
+  color: #ffe866;
+  transform: translateX(-8px) scale(1.12);
+}
+.ks-count {
+  margin-top: 4px;
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.75);
+}
+.ks-prompt {
+  position: absolute;
+  right: 30px;
+  bottom: 168px;
+  font-weight: 700;
+  font-size: 19px;
+  letter-spacing: 0.1em;
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.ks-prompt.on {
+  opacity: 1;
+}
+.ks-prompt kbd {
+  font-size: 15px;
+  line-height: 22px;
+  min-width: 24px;
+}
+.ks-cyc {
+  margin-left: 10px;
+  color: var(--ink-dim);
+}
+.ks-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 660px;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+  z-index: 2;
+}
+.ks-hint.top {
+  top: auto;
+  bottom: 60px;
+}
+.ks-hint.on {
+  opacity: 1;
+}
+.ks-hint-t {
+  font-weight: 800;
+  font-size: 30px;
+  letter-spacing: 0.12em;
+  color: #ffe866;
+}
+.ks-hint-s {
+  margin-top: 4px;
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: 0.14em;
+  color: #fff;
+}
+.ks-capture {
+  position: absolute;
+  left: 50%;
+  top: 620px;
+  width: 420px;
+  margin-left: -210px;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.ks-capture.on {
+  opacity: 1;
+}
+.ks-cap-t {
   font-weight: 700;
   font-size: 20px;
   letter-spacing: 0.12em;
   color: #fff;
 }
-.st-key {
-  font-size: 15px;
-  color: var(--ink-dim);
+.ks-cap-bar {
+  margin-top: 6px;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.3);
 }
-.st-key kbd {
-  font-size: 15px;
-  line-height: 22px;
-  min-width: 24px;
+.ks-cap-fill {
+  display: block;
+  height: 100%;
+  background: #ffe866;
+  transform-origin: left;
+  transform: scaleX(0);
 }
-.st-count {
+.ks-nuke {
   position: absolute;
-  left: -6px;
-  top: -10px;
+  left: 0;
+  right: 0;
+  top: 160px;
+  text-align: center;
+  color: #ffe866;
+  opacity: 0;
+}
+.ks-nuke.enemy {
+  color: #ff5747;
+}
+.ks-nuke.on {
+  opacity: 1;
+  animation: blink 1s ease-in-out infinite;
+}
+.ks-nuke-t {
+  font-weight: 800;
+  font-size: 34px;
+  letter-spacing: 0.16em;
+}
+.ks-nuke-n {
   font-family: var(--f-num);
-  font-size: 18px;
-  color: var(--you);
+  font-size: 64px;
+  line-height: 1;
+}
+.ks-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+/* Laptop map / remote view: the soldier HUD goes away */
+.hud.ks-ctl .hud-cross,
+.hud.ks-ctl .hud-ammo,
+.hud.ks-ctl .hud-minimap,
+.hud.ks-ctl .hud-uav,
+.hud.ks-ctl .hud-prompt,
+.hud.ks-ctl .ks-col,
+.hud.ks-ctl .ks-prompt {
+  visibility: hidden;
+}
+.kf-w.ks .ksicon {
+  width: 30px;
+  height: 30px;
+  display: block;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ks-nuke.on {
+    animation: none;
+  }
+  .ks-row {
+    transition: none;
+  }
 }
 
 /* damage indicators */

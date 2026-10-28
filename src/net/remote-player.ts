@@ -8,6 +8,7 @@ import { CONFIG } from '../core/config'
 import type { Game } from '../core/game'
 import { clamp, lerp, wrapAngle } from '../core/math'
 import type { Actor, ActorHit, ActorStats, DamageInfo, PerkId, Team, WeaponId } from '../core/types'
+import type { KillstreakId } from '../game/killstreaks/defs'
 import { WEAPONS } from '../weapons/defs'
 import { createWorldWeaponModel } from '../weapons/world-models'
 import { type ActorState, F_ADS, F_ALIVE, F_GROUNDED, F_RELOAD, F_SPRINT, F_STANCE_SHIFT } from './protocol'
@@ -47,6 +48,7 @@ export class RemotePlayer implements Actor {
   timeSinceDamage = 99
   weaponId: WeaponId
   perks: PerkId[] = []
+  killstreaks: KillstreakId[] = []
   /** Host side: called when the game mode spawns this actor (forwarded to its owner). */
   onSpawn: ((position: Vector3, yaw: number) => void) | null = null
   /** Host side: grenades thrown this life (loose anti-cheat). */

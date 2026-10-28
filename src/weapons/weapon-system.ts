@@ -629,6 +629,15 @@ export class WeaponSystem {
     this.scope?.set(false)
   }
 
+  /** Care package ammo: full magazines and reserves, frag restocked. */
+  resupply() {
+    for (const s of this.slots) {
+      s.mag = s.def.magSize
+      s.reserve = s.def.reserve
+    }
+    this.frags = Math.max(this.frags, 1)
+  }
+
   /** Owner spawned — refill ammo, raise weapon animation. */
   onSpawn() {
     const l = this.game.loadout

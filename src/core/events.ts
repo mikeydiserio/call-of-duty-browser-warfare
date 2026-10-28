@@ -1,4 +1,6 @@
 import type { Vector3 } from 'three'
+import type { KillstreakNetState } from '../game/killstreaks/manager'
+import type { KillstreakId } from '../game/killstreaks/defs'
 import type { Actor, DamageInfo, GameModeId, ObjectiveId, Surface, Team, WeaponId } from './types'
 
 /** Every cross-system notification. Payload vectors are owned by the emitter — clone if you keep them. */
@@ -29,8 +31,12 @@ export interface GameEvents {
   'score:changed': { tf141: number; opfor: number }
   /** Points popup ("+100") for the local player. */
   'player:points': { amount: number; reason: string }
-  'killstreak:earned': { actor: Actor; streak: 'uav' | 'airstrike' }
-  'killstreak:used': { actor: Actor; streak: 'uav' | 'airstrike'; team: Team }
+  'killstreak:earned': { actor: Actor; streak: KillstreakId }
+  'killstreak:used': { actor: Actor; streak: KillstreakId; team: Team }
+  /** Host → everyone, ~10 Hz: live killstreak entities + EMP / Counter-UAV / nuke state (clients mirror it). */
+  'killstreak:state': KillstreakNetState
+  /** A killstreak sound (positional when `pos` is set). */
+  'killstreak:sound': { key: string; pos?: Vector3; gain?: number }
   'uav:changed': { team: Team; active: boolean; until: number }
   'match:phase': { phase: MatchPhase; winner?: Team | 'draw' }
   'match:announce': { text: string; sub?: string; voice?: string }

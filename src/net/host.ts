@@ -3,6 +3,7 @@ import { Bot } from '../ai/bot'
 import type { GameEvents } from '../core/events'
 import type { Game } from '../core/game'
 import type { Actor, Loadout, MatchSettings, PerkId, Team, WeaponId } from '../core/types'
+import { KILLSTREAKS, type KillstreakId, normalizeKillstreaks } from '../game/killstreaks/defs'
 import { WEAPONS } from '../weapons/defs'
 import type { NetHooks } from './hooks'
 import type { PeerLink } from './peer'
@@ -32,7 +33,7 @@ export interface HostPeer {
 /** Events replicated to clients (they re-emit them so HUD / FX / audio work unchanged). */
 const RELAY: (keyof GameEvents)[] = [
   'weapon:fire', 'weapon:melee', 'bullet:tracer', 'bullet:impact', 'actor:damaged', 'actor:killed', 'grenade:explode',
-  'score:changed', 'killstreak:earned', 'killstreak:used', 'uav:changed', 'match:phase', 'match:announce',
+  'score:changed', 'killstreak:earned', 'killstreak:used', 'killstreak:state', 'killstreak:sound', 'uav:changed', 'match:phase', 'match:announce',
   'objective:state', 'objective:captured', 'bomb:pickup', 'bomb:dropped', 'bomb:planted', 'bomb:defused', 'bomb:exploded',
   'round:phase',
 ]
@@ -151,6 +152,7 @@ export class HostSession implements NetHooks {
     const lo = p.loadout ?? { primary: 'm4a1', secondary: 'usp45', perks: [] }
     const r = new RemotePlayer(this.game, p.netId, p.name, p.team, lo.primary, false)
     r.perks = lo.perks
+    r.killstreaks = normalizeKillstreaks(lo.killstreaks)
     r.onSpawn = (pos, yaw) => p.queue.push({ t: 'spawn', p: v3(pos), yaw })
     this.remotes.set(p.pid, r)
     return r
@@ -205,6 +207,10 @@ export class HostSession implements NetHooks {
 
   perksOf(actor: Actor): PerkId[] | null {
     return actor instanceof RemotePlayer ? actor.perks : null
+  }
+
+  killstreaksOf(actor: Actor): KillstreakId[] | null {
+    return actor instanceof RemotePlayer ? actor.killstreaks : null
   }
 
   update(dt: number) {
@@ -359,6 +365,9 @@ export class HostSession implements NetHooks {
         return
       case 'respawn':
         if (r && !r.alive) g.mode.requestRespawn(r)
+        return
+      case 'ks':
+        if (r && r.alive && g.mode.phase === 'playing' && msg.id in KILLSTREAKS) g.streaks.remoteUse(r, msg.id, msg.p, msg.h)
         return
       default:
     }

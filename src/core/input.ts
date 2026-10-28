@@ -16,6 +16,7 @@ const PRESS_KEYS = {
   Escape: 'pausePressed',
   KeyP: 'pausePressed',
   Digit4: 'killstreakPressed',
+  Digit3: 'streakCyclePressed',
 } as const satisfies Record<string, keyof InputState>
 
 type PressFlag = (typeof PRESS_KEYS)[keyof typeof PRESS_KEYS] | 'firePressed'
@@ -48,6 +49,7 @@ export class Input {
     scoreboard: false,
     pausePressed: false,
     killstreakPressed: false,
+    streakCyclePressed: false,
   }
   sensitivity = 1
   invertY = false

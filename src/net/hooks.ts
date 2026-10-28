@@ -1,5 +1,6 @@
 import type { Vector3 } from 'three'
 import type { Actor, PerkId, WeaponId } from '../core/types'
+import type { KillstreakId } from '../game/killstreaks/defs'
 
 /**
  * What core/combat call into while an online match is running (`game.net`, null offline).
@@ -18,4 +19,8 @@ export interface NetHooks {
   onMelee(attacker: Actor): void
   /** Perks of a non-local actor (remote humans), or null. */
   perksOf(actor: Actor): PerkId[] | null
+  /** Killstreak set of a non-local actor (remote humans), or null. */
+  killstreaksOf?(actor: Actor): KillstreakId[] | null
+  /** Client: ask the host to call in a held reward (target / heading from the map picker or sentry placement). */
+  onKillstreak?(id: KillstreakId, target?: [number, number, number], heading?: number): void
 }

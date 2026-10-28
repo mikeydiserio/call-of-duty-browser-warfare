@@ -7,6 +7,7 @@
  */
 import { Vector3 } from 'three'
 import type { Actor, Loadout, MatchSettings, ObjectiveId, Team, WeaponId } from '../core/types'
+import type { KillstreakId } from '../game/killstreaks/defs'
 
 export const WEAPON_IDS: WeaponId[] = ['acr', 'm4a1', 'ak47', 'ump45', 'intervention', 'spas12', 'usp45', 'deagle', 'frag', 'knife']
 const weaponIndex = (id: WeaponId) => Math.max(0, WEAPON_IDS.indexOf(id))
@@ -265,6 +266,8 @@ export type ReliableMsg =
   | { t: 'nade'; o: [number, number, number]; v: [number, number, number]; fuse: number }
   | { t: 'knife' }
   | { t: 'respawn' }
+  /** Client → host: call in a held killstreak (target / heading from the map picker or sentry placement). */
+  | { t: 'ks'; id: KillstreakId; p?: [number, number, number]; h?: number }
   | { t: 'streak' }
 
 // ─── Generic event (de)serialisation ────────────────────────────────────────

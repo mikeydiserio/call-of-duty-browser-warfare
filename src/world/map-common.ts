@@ -25,24 +25,34 @@ export interface MapBlueprint {
   menuCameraPath: { position: Vector3; target: Vector3 }[]
 }
 
-export function createMapWorld(collision: CollisionWorld, id: string, ground: MatKey) {
+/**
+ * `bounds` sets the playable area (default MAP_BOUNDS); pass the same object as the
+ * blueprint's `bounds` in finishMap so nav, minimap and spawns agree.
+ */
+export function createMapWorld(collision: CollisionWorld, id: string, ground: MatKey, bounds: typeof MAP_BOUNDS = MAP_BOUNDS) {
   const root = new Group()
   root.name = id
   const builder = new MapBuilder(createMaterials(), collision)
   // A single walkable slab keeps the ground collision continuous beneath the set dressing.
-  builder.box(ground, 72, 0.8, 72, 0, -0.4, 0)
-  addBounds(collision)
+  const w = bounds.maxX - bounds.minX + 4
+  const d = bounds.maxZ - bounds.minZ + 4
+  builder.box(ground, w, 0.8, d, (bounds.minX + bounds.maxX) / 2, -0.4, (bounds.minZ + bounds.maxZ) / 2)
+  addBounds(collision, bounds)
   return { root, builder }
 }
 
-export function addBounds(collision: CollisionWorld) {
-  const h = 24
+export function addBounds(collision: CollisionWorld, bounds: typeof MAP_BOUNDS = MAP_BOUNDS) {
+  const h = 40
   const y = h / 2 - 2
+  const cx = (bounds.minX + bounds.maxX) / 2
+  const cz = (bounds.minZ + bounds.maxZ) / 2
+  const sx = bounds.maxX - bounds.minX + 12
+  const sz = bounds.maxZ - bounds.minZ + 12
   for (const [x, z, w, d] of [
-    [0, MAP_BOUNDS.minZ - 0.5, 80, 1],
-    [0, MAP_BOUNDS.maxZ + 0.5, 80, 1],
-    [MAP_BOUNDS.minX - 0.5, 0, 1, 80],
-    [MAP_BOUNDS.maxX + 0.5, 0, 1, 80],
+    [cx, bounds.minZ - 0.5, sx, 1],
+    [cx, bounds.maxZ + 0.5, sx, 1],
+    [bounds.minX - 0.5, cz, 1, sz],
+    [bounds.maxX + 0.5, cz, 1, sz],
   ] as [number, number, number, number][]) collision.addBox(new Vector3(x, y, z), new Vector3(w, h, d), 'concrete')
 }
 

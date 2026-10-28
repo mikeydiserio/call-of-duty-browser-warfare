@@ -7,6 +7,8 @@ import { damp, el, fmtTime, retrigger, setClass, Txt } from './dom'
 import { emblemSvg, ICON, weaponSvg } from './icons'
 import { Minimap } from './minimap'
 import { ModeHud } from './mode-hud'
+import { StreakHud } from './streak-hud'
+import { KILLSTREAKS, killstreakSvg, type KillstreakId } from '../game/killstreaks/defs'
 import { ffaStandings, ordinal } from './modes'
 
 const DESIGN_H = 1080
@@ -110,10 +112,8 @@ export class Hud {
   private ssUntil = 0
   private holdAnnounce = false
 
-  // streak + uav
-  private streakEl: HTMLElement
-  private streakCount: Txt
-  private lastStreakN = 0
+  // killstreaks + uav
+  private ks: StreakHud
   private uavLabel: HTMLElement
   private uavTxt: Txt
 
@@ -204,10 +204,9 @@ export class Hud {
     this.ssT = new Txt(el('div', 'an-t', this.streakSplash))
     this.ssS = new Txt(el('div', 'an-s', this.streakSplash))
 
-    // ── streak icon ──
-    this.streakEl = el('div', 'hud-streak', root)
-    this.streakEl.innerHTML = `<div class="st-ico">${ICON.uav}</div><div class="st-name">UAV</div><div class="st-key"><kbd>4</kbd></div>`
-    this.streakCount = new Txt(el('div', 'st-count', this.streakEl))
+    // ── killstreaks ──
+    this.ks = new StreakHud(game, root)
+    root.appendChild(this.ks.el)
 
     // ── damage & grenade indicators ──
     const dmgRoot = el('div', 'hud-dmg', root)
@@ -263,7 +262,6 @@ export class Hud {
     this.deathShown = false
     this.lastScore = [-1, -1]
     this.ammoSig = ''
-    this.lastStreakN = 0
     this.scoreLayout = ''
     this.modeHud.reset()
     setClass(this.death, 'on', false)
@@ -286,7 +284,7 @@ export class Hud {
     const ev = g.events
 
     ev.on('actor:killed', (info) => {
-      this.addFeed(info.attacker, info.victim, info.weaponId, info.headshot)
+      this.addFeed(info.attacker, info.victim, info.weaponId, info.headshot, info.killstreak)
       if (info.victim.isPlayer) {
         const k = info.attacker
         this.lastKill = {
@@ -340,14 +338,17 @@ export class Hud {
     })
 
     ev.on('killstreak:earned', ({ actor, streak }) => {
-      if (!actor.isPlayer) return
-      this.showStreakSplash(`${streak === 'uav' ? 'UAV' : 'AIRSTRIKE'} READY`, 'Press 4 to call in', 'friend')
+      if (actor !== g.player) return
+      const def = KILLSTREAKS[streak]
+      this.showStreakSplash(`${def.kills} KILLSTREAK!`, `${def.name.toUpperCase()} — PRESS 4`, 'friend')
     })
-    ev.on('killstreak:used', ({ streak, team }) => {
-      const ours = team === g.player.team
-      const name = streak === 'uav' ? 'UAV' : 'AIRSTRIKE'
-      if (ours) this.showStreakSplash(`${name} ONLINE`, 'Enemy positions revealed', 'friend')
-      else this.showStreakSplash(`ENEMY ${name} INBOUND`, 'You are being tracked', 'enemy')
+    ev.on('killstreak:used', ({ actor, streak }) => {
+      if (actor === g.player || streak === 'sentry') return
+      const ours = !g.mode.isEnemy(g.player, actor)
+      const name = KILLSTREAKS[streak].name.toUpperCase()
+      if (streak === 'nuke') this.showStreakSplash(ours ? 'FRIENDLY TACTICAL NUKE' : 'ENEMY TACTICAL NUKE', `${actor.name.toUpperCase()} — 10 SECONDS`, ours ? 'friend' : 'enemy')
+      else if (ours) this.showStreakSplash(`FRIENDLY ${name} INBOUND`, actor.name.toUpperCase(), 'friend')
+      else this.showStreakSplash(`ENEMY ${name} INBOUND`, actor.name.toUpperCase(), 'enemy')
     })
 
     ev.on('match:phase', ({ phase }) => {
@@ -355,7 +356,7 @@ export class Hud {
     })
   }
 
-  private addFeed(killer: Actor | null, victim: Actor, weaponId: WeaponId, headshot: boolean) {
+  private addFeed(killer: Actor | null, victim: Actor, weaponId: WeaponId, headshot: boolean, streak?: KillstreakId) {
     const me = this.game.player
     const mode = this.game.mode
     const cls = (a: Actor) => (a.isPlayer ? 'you' : mode.isEnemy(me, a) ? ENEMY_CLS : FRIEND_CLS)
@@ -363,8 +364,9 @@ export class Hud {
     if (killer && killer !== victim) {
       el('span', `kf-n ${cls(killer)}`, row, killer.name)
       const w = el('span', 'kf-w', row)
-      w.innerHTML = weaponSvg(weaponId)
-      if (headshot) {
+      w.innerHTML = streak ? killstreakSvg(streak) : weaponSvg(weaponId)
+      if (streak) w.classList.add('ks')
+      if (headshot && !streak) {
         const h = el('span', 'kf-hs', row)
         h.innerHTML = ICON.headshot
       }
@@ -655,26 +657,19 @@ export class Hud {
 
   private updateStreak() {
     const g = this.game
-    const n = g.mode.playerStreaks.length
-    if (n !== this.lastStreakN) {
-      if (n > this.lastStreakN) retrigger(this.streakEl, 'pop')
-      this.lastStreakN = n
-      this.streakCount.set(n > 1 ? `x${n}` : '')
-      setClass(this.streakEl, 'on', n > 0)
-      const first = g.mode.playerStreaks[0]
-      const ico = this.streakEl.querySelector('.st-ico')
-      const name = this.streakEl.querySelector('.st-name')
-      if (first && ico && name) {
-        ico.innerHTML = first === 'uav' ? ICON.uav : ICON.airstrike
-        name.textContent = first === 'uav' ? 'UAV' : 'AIRSTRIKE'
-      }
-    }
+    this.ks.update()
     // UAV status under the minimap
     const mine = g.player.team
     const theirs: Team = mine === 'tf141' ? 'opfor' : 'tf141'
     let label = ''
     let cls = ''
-    if (g.mode.isUavActive(mine)) {
+    if (g.streaks.empAffects(g.player)) {
+      label = 'EMP — SYSTEMS DOWN'
+      cls = 'enemy'
+    } else if (g.streaks.jammed(g.player)) {
+      label = 'ENEMY COUNTER-UAV'
+      cls = 'enemy'
+    } else if (g.mode.isUavActive(mine)) {
       label = `UAV ONLINE  ${Math.max(0, Math.ceil(g.mode.uavUntil[mine] - g.time))}`
       cls = 'friend'
     } else if (g.mode.isUavActive(theirs)) {

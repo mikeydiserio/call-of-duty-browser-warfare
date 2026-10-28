@@ -845,6 +845,28 @@ export class Effects {
     if (!suppressed && camD < 55) this.flashLight(_w.copy(origin).addScaledVector(dir, 0.3), 18, 0.06, 8, 0xffa860)
   }
 
+  /** One rising smoke puff (killstreak markers, burning wrecks, missile trails). */
+  smoke(p: Vector3, r: number, g: number, b: number, size = 1, alpha = 0.6, life = 2.4) {
+    const s = this.s
+    s.reset().pos(p)
+    s.vx = rand(-0.3, 0.3) + this.wind.x * 0.5
+    s.vy = rand(0.8, 1.6) * size
+    s.vz = rand(-0.3, 0.3) + this.wind.z * 0.5
+    s.drag = 0.8
+    s.grav = -0.15
+    s.life = rand(life * 0.7, life)
+    s.s0 = 0.25 * size
+    s.s1 = rand(1.2, 1.8) * size
+    s.rot = Math.random() * 6.28
+    s.rv = rand(-0.4, 0.4)
+    s.frame = (Math.random() * 4) | 0
+    this.rgb(s, r, g, b)
+    s.a0 = alpha
+    s.a1 = 0
+    s.fadeIn = 0.08
+    this.billboards.emit(s)
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Grenades
   // ═══════════════════════════════════════════════════════════════════════════
