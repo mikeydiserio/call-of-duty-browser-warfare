@@ -43,8 +43,13 @@ export interface Job {
   make(i: number, rng: Rng): Rendered
 }
 
-export type GunId = 'acr' | 'm4a1' | 'ak47' | 'ump45' | 'intervention' | 'spas12' | 'usp45' | 'deagle'
-export const GUN_IDS: GunId[] = ['acr', 'm4a1', 'ak47', 'ump45', 'intervention', 'spas12', 'usp45', 'deagle']
+type GunProfileId = 'acr' | 'm4a1' | 'ak47' | 'ump45' | 'intervention' | 'spas12' | 'usp45' | 'deagle'
+export type GunId = GunProfileId | 'rpd' | 'rpg7' | 'aa12' | 'g18'
+export const GUN_IDS: GunId[] = ['acr', 'm4a1', 'ak47', 'ump45', 'intervention', 'rpd', 'rpg7', 'aa12', 'spas12', 'usp45', 'g18', 'deagle']
+const PROFILE_FOR: Record<GunId, GunProfileId> = {
+  acr: 'acr', m4a1: 'm4a1', ak47: 'ak47', ump45: 'ump45', intervention: 'intervention',
+  rpd: 'ak47', rpg7: 'intervention', aa12: 'spas12', spas12: 'spas12', usp45: 'usp45', g18: 'usp45', deagle: 'deagle',
+}
 
 // ─── Gunshots ───────────────────────────────────────────────────────────────
 
@@ -76,7 +81,7 @@ interface GunProfile {
   peak: number
 }
 
-const GUNS: Record<GunId, GunProfile> = {
+const GUNS: Record<GunProfileId, GunProfile> = {
   acr: {
     click: 1, crackF: 3400, crackTau: 0.011, crackGain: 1.0, sizzle: 0.5,
     bodyF: 1500, bodyTau: 0.05, bodyGain: 1.9, thumpF0: 150, thumpF1: 62, thumpFTau: 0.025, thumpTau: 0.03, thumpGain: 0.9,
@@ -262,7 +267,7 @@ function sumInto(dst: Float32Array, srcs: Float32Array[], gains: number[] | numb
 
 /** Non-spatial (player) shot: stereo, punchy centre, wide decorrelated tail + slap echoes from the sides. */
 function gunOwn(id: GunId, rng: Rng): [Float32Array, Float32Array] {
-  const P = GUNS[id]
+  const P = GUNS[PROFILE_FOR[id]]
   const blast = gunBlast(P, rng)
   const echoes = gunEchoes(P, blast)
   const main = blast.slice()
@@ -292,7 +297,7 @@ function gunOwn(id: GunId, rng: Rng): [Float32Array, Float32Array] {
 
 /** Dull low boom, delayed crack, long rolling echoes. */
 function gunFar(id: GunId, rng: Rng): Float32Array {
-  const P = GUNS[id]
+  const P = GUNS[PROFILE_FOR[id]]
   const main = gunMain(P, rng)
   const len = P.len + 1.4
   const out = new Float32Array(samples(len))

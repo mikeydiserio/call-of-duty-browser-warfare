@@ -2,9 +2,9 @@ import { Vector3 } from 'three'
 import { Bot } from '../ai/bot'
 import type { GameEvents } from '../core/events'
 import type { Game } from '../core/game'
-import type { Actor, Loadout, MatchSettings, PerkId, Team, WeaponId } from '../core/types'
+import type { Actor, AttachmentId, Loadout, MatchSettings, PerkId, Team, WeaponId } from '../core/types'
 import { KILLSTREAKS, type KillstreakId, normalizeKillstreaks } from '../game/killstreaks/defs'
-import { WEAPONS } from '../weapons/defs'
+import { attachmentFor, weaponWithAttachment, WEAPONS } from '../weapons/defs'
 import type { NetHooks } from './hooks'
 import type { PeerLink } from './peer'
 import {
@@ -35,7 +35,7 @@ const RELAY: (keyof GameEvents)[] = [
   'weapon:fire', 'weapon:melee', 'bullet:tracer', 'bullet:impact', 'actor:damaged', 'actor:killed', 'grenade:explode',
   'score:changed', 'killstreak:earned', 'killstreak:used', 'killstreak:state', 'killstreak:sound', 'uav:changed', 'match:phase', 'match:announce',
   'objective:state', 'objective:captured', 'bomb:pickup', 'bomb:dropped', 'bomb:planted', 'bomb:defused', 'bomb:exploded',
-  'round:phase',
+  'round:phase', 'drop:spawn', 'drop:rounds',
 ]
 /** Client already predicted these for its own shots. */
 const PREDICTED = new Set<string>(['weapon:fire', 'weapon:melee', 'bullet:tracer', 'bullet:impact'])
@@ -129,6 +129,8 @@ export class HostSession implements NetHooks {
     g.actors.push(r)
     this.refreshBotMemories()
     p.link.sendReliable({ t: 'start', settings: g.match, seed: this.seed, you: p.netId, team: p.team, roster: this.roster(), phase: g.mode.phase, inProgress: true })
+    // Guns already on the ground (queued, so they land after 'start' clears the client's map).
+    g.drops.forEachLive((e) => p.queue.push({ t: 'ev', k: 'drop:spawn', p: encodeValue(e, (a) => a.id) }))
     this.broadcastRoster()
     if (g.mode.id === 'sd' && g.mode.phase === 'playing') {
       // Round-based: wait for the next round.
@@ -328,10 +330,16 @@ export class HostSession implements NetHooks {
         if (!r || !r.alive || g.mode.phase !== 'playing') return
         const def = WEAPONS[msg.w]
         if (!def || msg.d.length > Math.max(1, def.pellets) || msg.d.length === 0) return
+        const allowedAttachments: (AttachmentId | null)[] = []
+        if (peer.loadout?.primary === msg.w) allowedAttachments.push(peer.loadout.primaryAttachment ?? null)
+        if (peer.loadout?.secondary === msg.w) allowedAttachments.push(peer.loadout.secondaryAttachment ?? null)
+        if (msg.a !== undefined && !allowedAttachments.includes(msg.a)) return
+        const attachment = msg.a === undefined ? peer.loadout ? attachmentFor(peer.loadout, msg.w) : null : msg.a
+        const effectiveDef = weaponWithAttachment(msg.w, attachment)
         // Real time, not game time: frame dt is clamped on slow hosts.
         const now = performance.now() / 1000
         this.counters.fire++
-        if (now - r.lastFireAt < (60 / def.rpm) * 0.6) return void this.counters.rejected++ // rate of fire (loose: jitter/batching)
+        if (now - r.lastFireAt < (60 / effectiveDef.rpm) * 0.6) return void this.counters.rejected++ // rate of fire (loose: jitter/batching)
         const origin = new Vector3(...msg.o)
         if (origin.distanceTo(r.getEyePosition(_eye)) > 3) return void this.counters.rejected++ // origin must be near the proxy
         r.lastFireAt = now
@@ -345,9 +353,14 @@ export class HostSession implements NetHooks {
           if (dir.lengthSq() < 0.5) continue
           dir.normalize()
           first ??= dir
-          g.combat.fireBullet(r, msg.w, origin, dir, true, muzzle)
+          g.combat.fireBullet(r, msg.w, origin, dir, true, muzzle, attachment)
         }
-        if (first) g.events.emit('weapon:fire', { shooter: r, weaponId: msg.w, origin: muzzle, direction: first, suppressed: false })
+        if (first) {
+          g.events.emit('weapon:fire', {
+            shooter: r, weaponId: msg.w, origin: muzzle, direction: first,
+            suppressed: attachment === 'silencer', launcher: attachment === 'grenadeLauncher',
+          })
+        }
         return
       }
       case 'nade': {
@@ -361,7 +374,14 @@ export class HostSession implements NetHooks {
         return
       }
       case 'knife':
-        if (r && r.alive && g.mode.phase === 'playing') g.combat.melee(r)
+        if (r && r.alive && g.mode.phase === 'playing') {
+          const allowedAttachments: (AttachmentId | null)[] = []
+          if (peer.loadout?.primary === r.weaponId) allowedAttachments.push(peer.loadout.primaryAttachment ?? null)
+          if (peer.loadout?.secondary === r.weaponId) allowedAttachments.push(peer.loadout.secondaryAttachment ?? null)
+          if (msg.a !== undefined && !allowedAttachments.includes(msg.a)) return
+          const attachment = msg.a === undefined ? peer.loadout ? attachmentFor(peer.loadout, r.weaponId) : null : msg.a
+          g.combat.melee(r, attachment)
+        }
         return
       case 'respawn':
         if (r && !r.alive) g.mode.requestRespawn(r)
@@ -369,6 +389,18 @@ export class HostSession implements NetHooks {
       case 'ks':
         if (r && r.alive && g.mode.phase === 'playing' && msg.id in KILLSTREAKS) g.streaks.remoteUse(r, msg.id, msg.p, msg.h)
         return
+      case 'ammo':
+        if (r && msg.w in WEAPONS && typeof msg.n === 'number') {
+          r.heldWeapon = msg.w
+          r.heldRounds = Math.max(0, Math.min(999, Math.floor(msg.n)))
+        }
+        return
+      case 'scav': {
+        if (!r || typeof msg.id !== 'number' || typeof msg.want !== 'number') return
+        const got = g.drops.claim(msg.id, r, Math.min(msg.want, 999))
+        if (got) peer.queue.push({ t: 'ev', k: 'player:scavenge', p: got })
+        return
+      }
       default:
     }
   }

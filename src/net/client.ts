@@ -1,7 +1,7 @@
 import { Vector3 } from 'three'
 import type { GameEvents, MatchPhase } from '../core/events'
 import type { Game } from '../core/game'
-import type { Actor, DamageInfo, ObjectiveState, Team, WeaponId } from '../core/types'
+import type { Actor, AttachmentId, DamageInfo, ObjectiveState, Team, WeaponId } from '../core/types'
 import { actorFlags } from './host'
 import type { KillstreakId } from '../game/killstreaks/defs'
 import type { NetHooks } from './hooks'
@@ -18,6 +18,7 @@ const _c = new Vector3()
 
 interface PendingShot {
   w: WeaponId
+  a: AttachmentId | null
   o: [number, number, number]
   d: [number, number, number][]
 }
@@ -38,6 +39,9 @@ export class ClientSession implements NetHooks {
   private poseSeq = 0
   private pending: PendingShot | null = null
   private outbox: ReliableMsg[] = []
+  /** Last held-gun ammo reported to the host (for the drop on death), and the throttle. */
+  private ammoSent = ''
+  private ammoT = 0
   private replaying = false
   private deadT = 0
   private respawnLeft = 0
@@ -89,6 +93,7 @@ export class ClientSession implements NetHooks {
     ;(g.player as { team: Team }).team = msg.team
     this.applyRoster(msg.roster, false)
     this.respawnLeft = 0
+    this.ammoSent = ''
     this.latest = null
     this.lastSeq = -1
     // HUD reads the respawn countdown from the mode; ours comes from the host.
@@ -138,9 +143,9 @@ export class ClientSession implements NetHooks {
     return [this.game.player, ...this.mirrors.values()]
   }
 
-  onShot(shooter: Actor, weaponId: WeaponId, origin: Vector3, dir: Vector3) {
+  onShot(shooter: Actor, weaponId: WeaponId, origin: Vector3, dir: Vector3, attachment: AttachmentId | null) {
     if (shooter !== this.game.player || this.replaying) return
-    if (!this.pending || this.pending.w !== weaponId) this.pending = { w: weaponId, o: v3(origin), d: [] }
+    if (!this.pending || this.pending.w !== weaponId || this.pending.a !== attachment) this.pending = { w: weaponId, a: attachment, o: v3(origin), d: [] }
     this.pending.d.push(v3(dir))
   }
 
@@ -149,8 +154,8 @@ export class ClientSession implements NetHooks {
     this.outbox.push({ t: 'nade', o: v3(origin), v: v3(velocity), fuse })
   }
 
-  onMelee(attacker: Actor) {
-    if (attacker === this.game.player) this.outbox.push({ t: 'knife' })
+  onMelee(attacker: Actor, attachment: AttachmentId | null) {
+    if (attacker === this.game.player) this.outbox.push({ t: 'knife', a: attachment })
   }
 
   perksOf(): null {
@@ -163,6 +168,10 @@ export class ClientSession implements NetHooks {
 
   onKillstreak(id: KillstreakId, target?: [number, number, number], heading?: number) {
     this.outbox.push({ t: 'ks', id, p: target, h: heading })
+  }
+
+  onScavenge(id: number, want: number) {
+    this.outbox.push({ t: 'scav', id, want })
   }
 
   update(dt: number) {
@@ -180,6 +189,17 @@ export class ClientSession implements NetHooks {
         this.link.sendState(
           encodePose({ id: this.myNetId, x: p.position.x, y: p.position.y, z: p.position.z, yaw: p.yaw, pitch: p.pitch, flags: actorFlags(p, g), weapon: p.weaponId, health: p.health }, this.poseSeq++),
         )
+      }
+      // Rounds in the held gun, so the host drops the right amount when we die.
+      this.ammoT -= dt
+      if (g.player.alive && this.ammoT <= 0) {
+        const h = g.player.weapons.heldRounds()
+        const key = `${h.weaponId}:${h.rounds}`
+        if (key !== this.ammoSent) {
+          this.ammoSent = key
+          this.ammoT = 0.25
+          this.outbox.push({ t: 'ammo', w: h.weaponId, n: h.rounds })
+        }
       }
       // Respawn: press fire on the death screen.
       if (!g.player.alive) {
@@ -362,6 +382,13 @@ export class ClientSession implements NetHooks {
       case 'bullet:tracer':
         this.whizz(d as unknown as GameEvents['bullet:tracer'])
         break
+      case 'player:scavenge': {
+        // The host granted ammo from a dropped gun.
+        const taken = g.player.weapons.scavenge(d.weaponId as WeaponId, d.rounds as number)
+        if (taken <= 0) return
+        d.rounds = taken
+        break
+      }
       default:
     }
     g.events.emit(k, d as never)

@@ -1,5 +1,7 @@
 /**
- * Fully procedural WebAudio engine (no audio files).
+ * WebAudio engine. Every sound has a procedural version synthesised at startup; keys
+ * listed in samples.ts are then replaced by recorded samples as they decode (a key whose
+ * files fail to load keeps its synthesised version).
  *
  *   sources ─► voice gain ─► [air low-pass] ─► [HRTF panner | stereo pan] ─► bus
  *   weapons / sfx / ambience ─► muffle (damage, death, shellshock) ─┐
@@ -18,6 +20,7 @@ import type { Actor, Surface, WeaponId } from '../core/types'
 import { WEAPONS } from '../weapons/defs'
 import { hashStr, Rng, SR, setSampleRate } from './dsp'
 import { buildMusicJobs, MENU_STEMS } from './music'
+import { loadSamples, prefetchSamples } from './samples'
 import { buildCoreJobs, GUN_IDS, makeHallIR, makeOutdoorIR, type GunId, type Job, type Rendered } from './synth'
 import type { WorkerResult } from './synth.worker'
 
@@ -25,6 +28,8 @@ export type UiSound = 'hover' | 'select' | 'back' | 'countdown' | 'countdownFina
 
 const MAX_VOICES = 48
 const FAR_SHOT_DISTANCE = 35
+/** Other players' and bots' gunfire, relative to your own (several are often firing at once). */
+const OTHER_GUN_GAIN = 0.6
 const IMPACT_MAX_DISTANCE = 40
 const STEP_MAX_DISTANCE = 22
 const GEN_RATE = 44100
@@ -110,6 +115,8 @@ export class AudioEngine {
   private g: Graph | null = null
   /** key → variations */
   readonly bank = new Map<string, AudioBuffer[]>()
+  /** Keys now holding recorded samples; synthesis must not overwrite them. */
+  private readonly sampled = new Set<string>()
   private lastPick = new Map<string, number>()
 
   private masterVol = 0.8
@@ -143,6 +150,7 @@ export class AudioEngine {
   private lastImpactWindow = 0
   private impactCount = 0
   private lastWhizz = 0
+  private lastShell = 0
   private lastStep = new Map<number, number>()
   private pruneTimer = 0
   private gestureHooked = false
@@ -154,6 +162,8 @@ export class AudioEngine {
     this.hookGesture()
     // Kick off synthesis immediately (time-sliced, uses idle time between frames).
     void this.generate()
+    // Download recorded samples now; they decode once a gesture creates the AudioContext.
+    prefetchSamples()
   }
 
   // ─── Public API ───────────────────────────────────────────────────────────
@@ -393,6 +403,10 @@ export class AudioEngine {
     this.g = { master, limiter, analyser, gameDuck, muffle, weapons, sfx, amb, inner, ui, reverbIn, musicBus, musicIn }
     this.updateListener()
     this.startLoops()
+    void loadSamples(c, (key, buffers) => {
+      this.sampled.add(key)
+      this.bank.set(key, buffers)
+    })
   }
 
   private makeConvolver(ir: [Float32Array, Float32Array], rate: number): ConvolverNode {
@@ -496,7 +510,7 @@ export class AudioEngine {
             const ab = this.toAudioBuffer(c.length === 1 ? c[0]! : [c[0]!, c[1]!], r.rate)
             if (ab) out.push(ab)
           }
-          if (out.length) this.bank.set(r.key, out)
+          if (out.length && !this.sampled.has(r.key)) this.bank.set(r.key, out)
           this.genCpuMs += r.ms
           this.genJobMs.set(r.key, Math.round(r.ms))
           done.add(r.key)
@@ -543,7 +557,7 @@ export class AudioEngine {
           sliceStart = performance.now()
         }
       }
-      if (out.length) this.bank.set(job.key, out)
+      if (out.length && !this.sampled.has(job.key)) this.bank.set(job.key, out)
       done.add(job.key)
       markReady(done)
     }
@@ -807,30 +821,57 @@ export class AudioEngine {
   private bindEvents() {
     const ev = this.game.events
 
-    ev.on('weapon:fire', ({ shooter, weaponId, origin, suppressed }) => {
+    ev.on('weapon:fire', ({ shooter, weaponId, origin, suppressed, launcher }) => {
       const g = this.g
       if (!g || !GUN_SET.has(weaponId)) return
-      const cls = WEAPONS[weaponId].class
+      const def = WEAPONS[weaponId]
+      const cls = def.class
+      // Under-barrel launcher: GP-25 on the AK, M203 otherwise (falls back to the gun if not loaded).
+      const gl = launcher ? (weaponId === 'ak47' ? 'gun.gl.gp25' : 'gun.gl.m203') : null
+      const glKey = gl && this.bank.has(gl) ? gl : null
+      // Recorded suppressed shots are per weapon; the synthesised one is shared and pitched by class.
+      const suppKey = (variant: string) => (this.bank.has(`gun.${weaponId}.${variant}`) ? `gun.${weaponId}.${variant}` : null)
+      const suppRate = cls === 'sniper' ? 0.85 : cls === 'pistol' ? 1.1 : 1
       if (shooter.isPlayer) {
-        if (suppressed) {
-          this.play('gun.supp', { bus: g.weapons, gain: 0.8, rate: cls === 'sniper' ? 0.85 : cls === 'pistol' ? 1.1 : 1, prio: 150, send: 0.12 })
-        } else {
-          this.play(`gun.${weaponId}.own`, { bus: g.weapons, gain: 1, pitch: 0.03, prio: 150, send: weaponId === 'intervention' ? 0.45 : 0.28 })
+        if (glKey) {
+          this.play(glKey, { bus: g.weapons, gain: 1, pitch: 0.03, prio: 150, send: 0.2 })
+          return
         }
+        if (suppressed) {
+          const k = suppKey('supp')
+          this.play(k ?? 'gun.supp', { bus: g.weapons, gain: 0.8, rate: k ? 1 : suppRate, pitch: 0.03, prio: 150, send: 0.12 })
+        } else {
+          // Recorded shots carry long tails; cap them on automatics so sustained fire doesn't pile up voices.
+          this.play(`gun.${weaponId}.own`, { bus: g.weapons, gain: 1, pitch: 0.03, prio: 150, send: weaponId === 'intervention' ? 0.45 : 0.28, dur: def.auto ? 1.3 : undefined })
+        }
+        this.shellCasing(cls)
         return
       }
       const d = this.listenerPos.distanceTo(origin)
       const long = cls === 'sniper'
+      if (glKey) {
+        if (d < 60) this.play(glKey, { bus: g.weapons, pos: origin, gain: OTHER_GUN_GAIN, ref: 5, rolloff: 1.05, prio: 70, send: 0.2, air: true })
+        return
+      }
       if (suppressed) {
         if (d > 45) return
-        this.play('gun.supp', { bus: g.weapons, pos: origin, gain: 0.7, ref: 4, rolloff: 1.3, prio: 60, air: true, rate: cls === 'sniper' ? 0.85 : 1, dur: 0.5 })
+        const k = suppKey('supp.near')
+        this.play(k ?? 'gun.supp', { bus: g.weapons, pos: origin, gain: 0.7 * OTHER_GUN_GAIN, ref: 4, rolloff: 1.3, prio: 60, air: true, rate: k ? 1 : suppRate, dur: 0.5 })
         return
       }
       if (d > FAR_SHOT_DISTANCE) {
-        this.play(`gun.${weaponId}.far`, { bus: g.weapons, pos: origin, gain: 1.0, ref: 30, rolloff: 0.9, prio: 45, send: 0.45, air: true, dur: long ? undefined : 1.6 })
+        this.play(`gun.${weaponId}.far`, { bus: g.weapons, pos: origin, gain: OTHER_GUN_GAIN, ref: 30, rolloff: 0.9, prio: 45, send: 0.45, air: true, dur: long ? undefined : 1.6 })
       } else {
-        this.play(`gun.${weaponId}.own`, { bus: g.weapons, pos: origin, gain: 1.15, ref: 5, rolloff: 1.05, prio: 70, send: 0.2, air: true, dur: long ? undefined : 1.0 })
+        // Third-person recording when we have one, else the first-person shot.
+        const near = this.bank.has(`gun.${weaponId}.near`) ? `gun.${weaponId}.near` : `gun.${weaponId}.own`
+        this.play(near, { bus: g.weapons, pos: origin, gain: 1.15 * OTHER_GUN_GAIN, ref: 5, rolloff: 1.05, prio: 70, send: 0.2, air: true, dur: long ? undefined : 1.0 })
       }
+    })
+
+    ev.on('weapon:holdbreath', ({ actor, state }) => {
+      const g = this.g
+      if (!g || !actor.isPlayer) return
+      this.play(`breath.${state}`, { bus: g.inner, gain: state === 'gasp' ? 0.75 : 0.6, pitch: 0.03, prio: 170 })
     })
 
     ev.on('weapon:dryfire', ({ shooter }) => {
@@ -845,7 +886,7 @@ export class AudioEngine {
       if (!g) return
       const def = WEAPONS[weaponId]
       const shotgun = def.class === 'shotgun'
-      const rate = def.class === 'pistol' || def.class === 'smg' ? 1.12 : def.class === 'sniper' ? 0.88 : 1
+      const rate = def.class === 'pistol' || def.class === 'machinePistol' || def.class === 'smg' ? 1.12 : def.class === 'sniper' ? 0.88 : 1
       let key: string | null = null
       switch (stage) {
         case 'start':
@@ -870,6 +911,11 @@ export class AudioEngine {
       if (!key) return
       if (actor.isPlayer) this.play(key, { bus: g.sfx, gain: 0.85, rate, prio: 120 })
       else this.actorSound(key, actor, g.sfx, 0.65, 22, 1.5, rate)
+    })
+
+    ev.on('player:scavenge', () => {
+      const g = this.g
+      if (g) this.play('fol.magin', { bus: g.sfx, gain: 0.8, pitch: 0.04, prio: 120 })
     })
 
     ev.on('weapon:switch', ({ actor }) => {
@@ -909,6 +955,7 @@ export class AudioEngine {
       this.impactCount++
       let key: string = impactKey(surface)
       if (key === 'metal' && Math.random() < 0.38) key = 'ricochet'
+      if (key === 'water' && !this.bank.has('imp.water')) key = 'sand'
       this.play(`imp.${key}`, { bus: g.sfx, pos: point, gain: mine ? 1.0 : 0.8, ref: 3, rolloff: 1.4, prio: mine ? 90 : 40, send: 0.1, air: true })
     })
 
@@ -931,6 +978,10 @@ export class AudioEngine {
       if (!g || !info.victim.isPlayer || !this.running()) return
       const amt = info.amount
       this.play(info.explosive || amt > 55 ? 'hurt.heavy' : 'hurt', { bus: g.inner, gain: Math.min(1, 0.55 + amt / 80), prio: 180 })
+      // The round itself hitting your kit (bullets only).
+      if (!info.explosive && !info.killstreak && WEAPONS[info.weaponId].class !== 'melee') {
+        this.play('imp.body', { bus: g.inner, gain: Math.min(0.9, 0.45 + amt / 100), prio: 175 })
+      }
       this.hurtLevel = Math.max(this.hurtLevel, Math.min(1, 0.4 + amt / 70))
     })
 
@@ -990,6 +1041,13 @@ export class AudioEngine {
         if (d > 24) return
         this.play(`land.${k}`, { bus: g.sfx, pos: _pos.copy(actor.position), gain: 1.3 * gain, ref: 2.5, rolloff: 1.2, prio: 80, air: true })
       }
+    })
+
+    ev.on('grenade:cook', ({ actor }) => {
+      const g = this.g
+      if (!g) return
+      if (actor.isPlayer) this.play('gren.pin', { bus: g.sfx, gain: 0.85, prio: 140 })
+      else this.actorSound('gren.pin', actor, g.sfx, 0.7, 20, 1.4)
     })
 
     ev.on('grenade:throw', ({ actor }) => {
@@ -1076,6 +1134,18 @@ export class AudioEngine {
     })
   }
 
+  /** Brass hitting the floor a beat after the local player fires (every other round on fast automatics). */
+  private shellCasing(cls: string) {
+    const g = this.g
+    if (!g || cls === 'launcher') return
+    if (this.t - this.lastShell < 0.09) return
+    this.lastShell = this.t
+    const key = cls === 'shotgun' ? 'shell.sg' : cls === 'pistol' || cls === 'machinePistol' || cls === 'smg' ? 'shell.sm' : 'shell.lg'
+    // Pump/bolt guns eject on the cycle, a little later than the shot.
+    const delay = (cls === 'shotgun' || cls === 'sniper' ? 0.55 : 0.32) + Math.random() * 0.25
+    this.play(key, { bus: g.sfx, gain: 0.32, pitch: 0.08, prio: 25, delay, pan: 0.15 + Math.random() * 0.25 })
+  }
+
   /** Spatialised sound at an actor's chest height, gated by distance. */
   private actorSound(key: string, actor: Actor, bus: AudioNode, gain: number, maxDist: number, rolloff: number, rate = 1, delay = 0) {
     const pos = _pos.copy(actor.position)
@@ -1136,8 +1206,10 @@ function withRate<T>(rate: number, fn: () => T): T {
 
 // ─── Surface mapping ────────────────────────────────────────────────────────
 
-function impactKey(s: Surface): 'sand' | 'concrete' | 'metal' | 'wood' | 'glass' | 'flesh' {
+function impactKey(s: Surface): 'sand' | 'concrete' | 'metal' | 'wood' | 'glass' | 'flesh' | 'water' {
   switch (s) {
+    case 'water':
+      return 'water'
     case 'concrete':
       return 'concrete'
     case 'metal':

@@ -107,7 +107,7 @@ export class BotManager implements BotSquad {
     if (count <= 0) return
     const names = generateNames(team, count, used)
     // ~1 sniper per side, a shotgun rusher sometimes, the rest ARs/SMGs.
-    const pool: WeaponId[] = ['acr', 'm4a1', 'ak47', 'ump45', 'm4a1', 'acr', 'ak47', 'ump45']
+    const pool: WeaponId[] = ['acr', 'm4a1', 'ak47', 'ump45', 'rpd', 'rpg7', 'aa12', 'm4a1', 'acr', 'ak47', 'ump45']
     const sniperIdx = withSniper ? Math.floor(Math.random() * count) : -1
     const shotgunIdx = count > 1 && Math.random() < 0.5 ? (Math.max(0, sniperIdx) + 1 + Math.floor(Math.random() * (count - 1))) % count : -1
     for (let i = 0; i < count; i++) {
@@ -115,7 +115,7 @@ export class BotManager implements BotSquad {
       const primary: WeaponId = sniper ? 'intervention' : i === shotgunIdx ? 'spas12' : pool[Math.floor(Math.random() * pool.length)]!
       const profile: BotProfile = {
         primary,
-        secondary: Math.random() < 0.35 ? 'deagle' : 'usp45',
+        secondary: Math.random() < 0.35 ? 'deagle' : Math.random() < 0.35 ? 'g18' : 'usp45',
         skill: Math.min(1, Math.max(0, this.difficulty + (Math.random() - 0.5) * 0.1)),
         aggression: sniper ? 0.25 : 0.35 + Math.random() * 0.6,
         sniper,

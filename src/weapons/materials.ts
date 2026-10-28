@@ -130,8 +130,8 @@ function wear<T extends MeshStandardMaterial>(m: T, color: number, strength: num
   return m
 }
 
-/** IBL boost only (no edge wear) for fabric, skin, rubber. */
-function ibl<T extends MeshStandardMaterial>(m: T): T {
+/** IBL boost only (no edge wear) for fabric, skin, rubber — and the textured MW2 viewmodels. */
+export function withIblBoost<T extends MeshStandardMaterial>(m: T): T {
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uIblBoost = IBL_BOOST
     sh.fragmentShader = sh.fragmentShader
@@ -166,9 +166,9 @@ export function initViewmodelMaterials(): void {
   table.set('poly', wear(std(sets.poly!, { color: 0x313337, metalness: 0.0, rough: 1, normalScale: 0.5 }), 0x55575a, 0.45))
   table.set('polyTan', wear(std(sets.poly!, { color: 0x8c7a58, metalness: 0.0, rough: 1, normalScale: 0.5 }), 0xb8a888, 0.4))
   table.set('wood', wear(std(sets.wood!, { metalness: 0.0, rough: 1, normalScale: 0.7 }), 0xb06a3a, 0.5))
-  table.set('rubber', ibl(std(sets.poly!, { color: 0x1c1c1c, metalness: 0, rough: 1.15, normalScale: 0.9 })))
-  table.set('brass', ibl(std(null, { color: 0xc89a3c, metalness: 1, rough: 0.28 })))
-  table.set('chrome', ibl(std(null, { color: 0xdadde0, metalness: 1, rough: 0.12 })))
+  table.set('rubber', withIblBoost(std(sets.poly!, { color: 0x1c1c1c, metalness: 0, rough: 1.15, normalScale: 0.9 })))
+  table.set('brass', withIblBoost(std(null, { color: 0xc89a3c, metalness: 1, rough: 0.28 })))
+  table.set('chrome', withIblBoost(std(null, { color: 0xdadde0, metalness: 1, rough: 0.12 })))
   table.set('void', new MeshStandardMaterial({ color: 0x050505, roughness: 0.9, metalness: 0 }))
   table.set(
     'lens',
@@ -176,11 +176,11 @@ export function initViewmodelMaterials(): void {
   )
   table.set('glass', new MeshStandardMaterial({ color: 0x9fc6ff, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.1, depthWrite: false, side: DoubleSide, envMapIntensity: 2 }))
   table.set('dot', new MeshBasicMaterial({ color: new Color(1, 0.12, 0.05).multiplyScalar(4), toneMapped: false }))
-  table.set('glove', ibl(std(sets.glove!, { color: 0x2a2a26, metalness: 0, rough: 1, normalScale: 0.5 })))
-  table.set('skin', ibl(std(sets.skin!, { color: 0xffffff, metalness: 0, rough: 1, normalScale: 0.5 })))
-  table.set('camo', ibl(std(sets.camo!, { color: 0xffffff, metalness: 0, rough: 1, normalScale: 1.2 })))
-  table.set('strap', ibl(std(sets.glove!, { color: 0x3c3a31, metalness: 0, rough: 1, normalScale: 1.2 })))
-  table.set('grenade', ibl(std(sets.grenade!, { color: 0xffffff, metalness: 0.35, rough: 1, normalScale: 1.2 })))
+  table.set('glove', withIblBoost(std(sets.glove!, { color: 0x2a2a26, metalness: 0, rough: 1, normalScale: 0.5 })))
+  table.set('skin', withIblBoost(std(sets.skin!, { color: 0xffffff, metalness: 0, rough: 1, normalScale: 0.5 })))
+  table.set('camo', withIblBoost(std(sets.camo!, { color: 0xffffff, metalness: 0, rough: 1, normalScale: 1.2 })))
+  table.set('strap', withIblBoost(std(sets.glove!, { color: 0x3c3a31, metalness: 0, rough: 1, normalScale: 1.2 })))
+  table.set('grenade', withIblBoost(std(sets.grenade!, { color: 0xffffff, metalness: 0.35, rough: 1, normalScale: 1.2 })))
   table.set('watch', new MeshStandardMaterial({ color: 0xffffff, roughness: 0.3, metalness: 0.3 }))
 
 }

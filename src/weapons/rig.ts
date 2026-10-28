@@ -11,7 +11,7 @@ export interface Sock {
   grip: number[]
 }
 
-export type RigType = 'rifle' | 'pistol' | 'bolt' | 'pump' | 'grenade' | 'knife'
+export type RigType = 'rifle' | 'pistol' | 'bolt' | 'pump' | 'launcher' | 'grenade' | 'knife'
 
 export interface RigMeta {
   type: RigType
@@ -34,6 +34,8 @@ export interface RigMeta {
   magDir?: V3
   /** Left-hand pose holding the magazine while pulling it out / inserting. */
   magHold?: Sock
+  /** The 'mag' part leaves with the shot (launcher warhead): hidden while empty, never dropped on reload. */
+  magSpent?: boolean
   /** Charging handle / bolt handle grab pose (left hand) and its travel (m, rearward). */
   chargeHold?: Sock
   chargeTravel?: number

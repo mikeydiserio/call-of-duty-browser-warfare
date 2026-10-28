@@ -1,4 +1,4 @@
-import type { PerkId, WeaponDef, WeaponId } from '../core/types'
+import type { DeathstreakId, PerkId, WeaponDef, WeaponId } from '../core/types'
 import { WEAPONS } from '../weapons/defs'
 import { clamp } from './dom'
 
@@ -12,17 +12,28 @@ export interface PerkInfo {
 export const PERKS: Record<PerkId, PerkInfo> = {
   marathon: { id: 'marathon', name: 'Marathon', tier: 1, desc: 'Sprint indefinitely without tiring.' },
   sleightOfHand: { id: 'sleightOfHand', name: 'Sleight of Hand', tier: 1, desc: 'Reload weapons much faster.' },
+  scavenger: { id: 'scavenger', name: 'Scavenger', tier: 1, desc: 'Resupply ammunition from fallen enemies.' },
   stoppingPower: { id: 'stoppingPower', name: 'Stopping Power', tier: 2, desc: 'Bullets deal extra damage.' },
   lightweight: { id: 'lightweight', name: 'Lightweight', tier: 2, desc: 'Move faster with your weapons equipped.' },
+  dangerClose: { id: 'dangerClose', name: 'Danger Close', tier: 2, desc: 'Deal increased explosive damage.' },
+  coldBlooded: { id: 'coldBlooded', name: 'Cold-Blooded', tier: 2, desc: 'Avoid detection by enemy aircraft and thermal optics.' },
   commando: { id: 'commando', name: 'Commando', tier: 3, desc: 'Greater knife range and lunge distance.' },
   steadyAim: { id: 'steadyAim', name: 'Steady Aim', tier: 3, desc: 'Improved hip-fire accuracy.' },
+  ninja: { id: 'ninja', name: 'Ninja', tier: 3, desc: 'Move silently and remain hidden from heartbeat sensors.' },
 }
 
 export const PERK_TIERS: PerkId[][] = [
-  ['marathon', 'sleightOfHand'],
-  ['stoppingPower', 'lightweight'],
-  ['commando', 'steadyAim'],
+  ['marathon', 'sleightOfHand', 'scavenger'],
+  ['stoppingPower', 'lightweight', 'dangerClose', 'coldBlooded'],
+  ['commando', 'steadyAim', 'ninja'],
 ]
+
+export const DEATHSTREAKS: Record<DeathstreakId, { id: DeathstreakId; name: string; desc: string }> = {
+  lastStand: { id: 'lastStand', name: 'Last Stand', desc: 'Fight back briefly with a pistol after taking a lethal hit.' },
+  martyrdom: { id: 'martyrdom', name: 'Martyrdom', desc: 'Drop a live grenade when killed.' },
+}
+
+export const DEATHSTREAK_IDS = Object.keys(DEATHSTREAKS) as DeathstreakId[]
 
 export const WEAPON_BLURB: Partial<Record<WeaponId, string>> = {
   acr: 'Adaptive Combat Rifle. A precise, hard-hitting assault rifle with controllable recoil.',
@@ -30,17 +41,24 @@ export const WEAPON_BLURB: Partial<Record<WeaponId, string>> = {
   ak47: 'Soviet-designed workhorse. Brutal stopping power, heavy kick and punishing at range.',
   ump45: 'Compact submachine gun with a lightning aim time. Deadly in close quarters.',
   intervention: 'High-calibre bolt-action sniper rifle. One shot to the upper body is a kill.',
+  rpd: 'Belt-fed light machine gun with a large magazine and heavy recoil.',
+  rpg7: 'Shoulder-fired launcher that deals explosive damage in a small area.',
+  aa12: 'Fully automatic shotgun with a high-capacity drum magazine.',
   spas12: 'Semi-automatic combat shotgun. Devastating inside ten metres.',
   usp45: 'Reliable semi-automatic sidearm. Fast to draw, accurate and forgiving.',
   deagle: 'Hand cannon. Enormous damage per shot, at the cost of a violent recoil.',
+  g18: 'Fully automatic machine pistol with a high rate of fire and pronounced recoil.',
 }
 
 export const CLASS_LABEL: Record<string, string> = {
   assault: 'ASSAULT RIFLE',
   smg: 'SUBMACHINE GUN',
+  lmg: 'LIGHT MACHINE GUN',
   sniper: 'SNIPER RIFLE',
   shotgun: 'SHOTGUN',
   pistol: 'HANDGUN',
+  machinePistol: 'MACHINE PISTOL',
+  launcher: 'LAUNCHER',
   grenade: 'EQUIPMENT',
   melee: 'MELEE',
 }

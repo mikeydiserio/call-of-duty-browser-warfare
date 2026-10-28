@@ -13,6 +13,7 @@ import {
   HemisphereLight,
   Mesh,
   MeshBasicMaterial,
+  type Object3D,
   PerspectiveCamera,
   PlaneGeometry,
   Scene,
@@ -22,6 +23,7 @@ import {
 } from 'three'
 import type { WeaponId } from '../core/types'
 import { IBL_BOOST, initViewmodelMaterials, makeStudioEnvironment } from './materials'
+import { mw2WorldModel, onGunsLoaded } from './gun-kit'
 import { getViewRig } from './rigs'
 
 const FOV = 24
@@ -82,12 +84,19 @@ interface Model {
   pivot: Group
   radius: number
   height: number
+  /** Built from the MW2 mesh (vs the procedural stand-in). */
+  mw2: boolean
 }
 const models = new Map<WeaponId, Model>()
 
-function getModel(id: WeaponId): Model {
-  let m = models.get(id)
-  if (m) return m
+/** The textured MW2 mesh when loaded, else a rest-pose copy of the procedural rig. */
+function modelCopy(id: WeaponId): Object3D {
+  const mw2 = mw2WorldModel(id)
+  if (mw2) {
+    const copy = mw2.clone()
+    copy.position.set(0, 0, 0)
+    return copy
+  }
   const rig = getViewRig(id)
   const copy = rig.root.clone(true)
   // Rest pose for animated parts; drop viewmodel-only children (muzzle flash).
@@ -101,6 +110,22 @@ function getModel(id: WeaponId): Model {
   }
   const flash = copy.getObjectByName('vmFlash')
   flash?.parent?.remove(flash)
+  return copy
+}
+
+// Re-render thumbnails / previews once the MW2 meshes arrive.
+onGunsLoaded(() => {
+  if (!mw2WorldModel('ak47')) return
+  for (const [id, m] of models) if (!m.mw2) models.delete(id)
+  thumbs.clear()
+  const live = active
+  if (live) live.reloadModel()
+})
+
+function getModel(id: WeaponId): Model {
+  let m = models.get(id)
+  if (m) return m
+  const copy = modelCopy(id)
   copy.updateMatrixWorld(true)
   _box.setFromObject(copy)
   _box.getSize(_size)
@@ -108,7 +133,7 @@ function getModel(id: WeaponId): Model {
   copy.position.sub(_center)
   const pivot = new Group()
   pivot.add(copy)
-  m = { id, pivot, radius: Math.max(_size.x, _size.y, _size.z) * 0.5, height: _size.y }
+  m = { id, pivot, radius: Math.max(_size.x, _size.y, _size.z) * 0.5, height: _size.y, mw2: mw2WorldModel(id) !== null }
   models.set(id, m)
   return m
 }
@@ -228,6 +253,16 @@ export class WeaponPreview {
       c.style.transition = 'opacity 0.35s ease-out'
       c.style.opacity = '1'
     }
+  }
+
+  /** Swap in a freshly built model for the current weapon (after the MW2 meshes load). */
+  reloadModel() {
+    if (!this.model || this.model.mw2) return
+    const id = this.model.id
+    const st = getStage()
+    st.scene.remove(this.model.pivot)
+    this.model = getModel(id)
+    st.scene.add(this.model.pivot)
   }
 
   dispose() {

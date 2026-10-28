@@ -1,6 +1,7 @@
 import type { Game } from '../core/game'
-import type { Loadout, MatchSettings, NetRole, Team } from '../core/types'
+import type { AttachmentId, Loadout, MatchSettings, NetRole, Team, WeaponId } from '../core/types'
 import { normalizeKillstreaks } from '../game/killstreaks/defs'
+import { ATTACHMENT_IDS, attachmentsFor, WEAPONS } from '../weapons/defs'
 import { ClientSession } from './client'
 import { HostSession, type HostPeer } from './host'
 import type { LobbyInfo, LobbyPlayer, LobbyService, LobbyState } from './lobby'
@@ -12,6 +13,8 @@ import type { SignalChannel, SignalingTransport, SignalPayload } from './signali
 /** Humans + bots. */
 export const MAX_PLAYERS = 12
 const LOBBY_LIST = 'mw-lobbies'
+/** Presence channel every connected client joins, used for the "players online" counter. */
+const ONLINE_LIST = 'mw-online'
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
 /** Messages on the per-lobby broadcast channel `mw-lobby-<code>`. */
@@ -50,6 +53,7 @@ export class OnlineLobby implements LobbyService {
   private listeners = new Set<() => void>()
   private listCh: SignalChannel | null = null
   private listReady: Promise<SignalChannel> | null = null
+  private onlineCh: SignalChannel | null = null
   private ch: SignalChannel | null = null
   // Host
   private peers = new Map<string, HostPeer>()
@@ -75,8 +79,31 @@ export class OnlineLobby implements LobbyService {
     })
     this.localName = loadPlayerName()
     this.solo.localName = this.localName
-    window.addEventListener('beforeunload', () => this.leave())
+    window.addEventListener('beforeunload', () => {
+      this.leave()
+      this.onlineCh?.close()
+    })
+    void this.joinOnlineList()
     ;(window as unknown as { __net: OnlineLobby }).__net = this
+  }
+
+  // ─── Players online ───────────────────────────────────────────────────────
+
+  get onlineCount(): number | null {
+    return this.onlineCh ? Math.max(1, this.onlineCh.presence().length) : null
+  }
+
+  private async joinOnlineList(retryMs = 5000) {
+    try {
+      const ch = await this.transport.open(ONLINE_LIST, this.pid)
+      this.onlineCh = ch
+      ch.onPresence(() => this.changed())
+      ch.track({ online: true })
+      this.changed()
+    } catch (err) {
+      console.warn('[net] players-online channel unavailable', err)
+      window.setTimeout(() => void this.joinOnlineList(Math.min(retryMs * 2, 60000)), retryMs)
+    }
   }
 
   // ─── Lobby browser ────────────────────────────────────────────────────────
@@ -491,12 +518,19 @@ export class OnlineLobby implements LobbyService {
 }
 
 function sanitizeLoadout(l: Loadout | undefined): Loadout {
-  const ok = (id: unknown) => typeof id === 'string'
-  if (!l || !ok(l.primary) || !ok(l.secondary)) return { primary: 'm4a1', secondary: 'usp45', perks: [] }
+  const isWeapon = (id: unknown): id is WeaponId => typeof id === 'string' && id in WEAPONS
+  if (!l || !isWeapon(l.primary) || !isWeapon(l.secondary)) return { primary: 'm4a1', secondary: 'usp45', perks: [] }
+  const safeAttachment = (id: unknown, weapon: WeaponId): AttachmentId | undefined =>
+    typeof id === 'string' && ATTACHMENT_IDS.includes(id as AttachmentId) && attachmentsFor(weapon).includes(id as AttachmentId)
+      ? id as AttachmentId
+      : undefined
   return {
     primary: l.primary,
     secondary: l.secondary,
+    primaryAttachment: safeAttachment(l.primaryAttachment, l.primary),
+    secondaryAttachment: safeAttachment(l.secondaryAttachment, l.secondary),
     perks: Array.isArray(l.perks) ? l.perks.slice(0, 3) : [],
+    deathstreak: l.deathstreak === 'lastStand' || l.deathstreak === 'martyrdom' ? l.deathstreak : undefined,
     killstreaks: normalizeKillstreaks(Array.isArray(l.killstreaks) ? l.killstreaks : undefined),
   }
 }

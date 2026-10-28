@@ -41,6 +41,8 @@ export interface LobbyService {
   readonly role: NetRole
   /** False when online play is unavailable (e.g. Supabase env vars missing) — UI should grey out Host/Join. */
   readonly onlineAvailable: boolean
+  /** Players currently connected to the online service (menus + matches), or null when unknown/offline. */
+  readonly onlineCount: number | null
   readonly lobby: LobbyState | null
   localName: string
   /** Set and persist this player's name. */
@@ -65,6 +67,7 @@ export interface LobbyService {
 export class OfflineLobby implements LobbyService {
   readonly role: NetRole = 'offline'
   readonly onlineAvailable = false
+  readonly onlineCount = null
   lobby: LobbyState | null = null
   localName = loadPlayerName()
   private listeners = new Set<() => void>()

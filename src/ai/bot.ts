@@ -116,10 +116,6 @@ export class Bot implements Actor {
   private models: Record<'primary' | 'secondary', Object3D>
   private slot: 'primary' | 'secondary' = 'primary'
   private ammo: Record<'primary' | 'secondary', AmmoState> = { primary: { mag: 0, reserve: 0 }, secondary: { mag: 0, reserve: 0 } }
-  private dropped: Object3D | null = null
-  private dropVel = new Vector3()
-  private dropSpin = new Vector3()
-  private dropRest = false
 
   // Movement
   private grounded = false
@@ -218,7 +214,7 @@ export class Bot implements Actor {
 
   private turning = false
   private noSmoothT = 0
-  private corpses: { mesh: SkinnedMesh; mat: MeshStandardMaterial; t: number; gun: Object3D | null }[] = []
+  private corpses: { mesh: SkinnedMesh; mat: MeshStandardMaterial; t: number }[] = []
   private airStuckT = 0
   private readonly baseMat: Material
   private readonly fadeMat: MeshStandardMaterial
@@ -308,14 +304,20 @@ export class Bot implements Actor {
     this.ladder = null
     this.mantleT = -1
     this.rig.knife.visible = false
-    // Drop the gun where it is.
-    const w = this.models[this.slot]
-    this.game.render.scene.attach(w)
-    this.dropped = w
-    this.dropVel.copy(this.velocity).multiplyScalar(0.6).addScaledVector(info.direction, 1.2)
-    this.dropVel.y += 1.2
-    this.dropSpin.set((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 6)
-    this.dropRest = false
+    // Drop the gun in hand where it is; it stays on the map with the ammo left in it.
+    const slot = this.slot
+    const ammo = this.ammo[slot]
+    _v.copy(this.velocity).multiplyScalar(0.6).addScaledVector(info.direction, 1.2)
+    _v.y += 1.2
+    this.game.drops.drop(this.models[slot], this.weaponId, ammo.mag + ammo.reserve, _v)
+    // The soldier gets a fresh one for the next life.
+    const fresh = createWorldWeaponModel(this.weaponId)
+    fresh.traverse((o) => {
+      o.castShadow = true
+    })
+    fresh.visible = false
+    this.rig.root.add(fresh)
+    this.models[slot] = fresh
     this.ragdoll.start(this.velocity, info)
     this.hitboxes.invalidate()
     this.corpseT = 0
@@ -357,11 +359,6 @@ export class Bot implements Actor {
     this.rig.mesh.material = this.baseMat
     this.rig.mesh.castShadow = true
     // Weapons back in hand, full ammo.
-    if (this.dropped) {
-      this.rig.root.add(this.dropped)
-      this.dropped.visible = true
-      this.dropped = null
-    }
     this.slot = 'primary'
     this.models.primary.visible = true
     this.models.secondary.visible = false
@@ -448,12 +445,10 @@ export class Bot implements Actor {
       c.mesh.removeFromParent()
       c.mesh.skeleton.dispose()
       c.mat.dispose()
-      c.gun?.removeFromParent()
     }
     this.corpses = []
     this.fadeMat.dispose()
     this.rig.root.removeFromParent()
-    this.dropped?.removeFromParent()
     this.rig.dispose()
   }
 
@@ -768,7 +763,7 @@ export class Bot implements Actor {
     if (def.class === 'smg') (near = 4), (far = 15)
     else if (def.class === 'shotgun') (near = 1.5), (far = 7)
     else if (def.class === 'sniper') (near = 14), (far = 90)
-    else if (def.class === 'pistol') (near = 3), (far = 14)
+    else if (def.class === 'pistol' || def.class === 'machinePistol') (near = 3), (far = 14)
     const aggro = this.aggression
     if (d > far) this.advance = 1
     else if (d < near) this.advance = -1
@@ -1308,7 +1303,7 @@ export class Bot implements Actor {
       this.game.combat.fireBullet(this, this.weaponId, _eye, _dir, true, _muzzle)
     }
     this.game.events.emit('weapon:fire', { shooter: this, weaponId: this.weaponId, origin: _muzzle, direction: _v, suppressed: false })
-    this.anim.fireKick(def.class === 'sniper' || def.class === 'shotgun' ? 1.6 : def.class === 'pistol' ? 0.8 : 0.6)
+    this.anim.fireKick(def.class === 'sniper' || def.class === 'shotgun' ? 1.6 : def.class === 'pistol' || def.class === 'machinePistol' ? 0.8 : 0.6)
     // Recoil the view; the aim controller pulls it back down.
     this.pitch += def.recoilV * DEG * (0.4 + Math.random() * 0.4)
     this.yaw += (Math.random() * 2 - 1) * def.recoilH * DEG * 0.6
@@ -1323,7 +1318,7 @@ export class Bot implements Actor {
       this.burstLeft--
       if (this.burstLeft <= 0) this.burstPause = 0.12 + Math.random() * 0.25 + (this.target ? this.target.position.distanceTo(this.position) / 120 : 0)
     } else {
-      this.fireCd = def.class === 'pistol' ? Math.max(interval, 0.17 + Math.random() * 0.16) : interval + Math.random() * 0.12
+      this.fireCd = def.class === 'pistol' || def.class === 'machinePistol' ? Math.max(interval, 0.17 + Math.random() * 0.16) : interval + Math.random() * 0.12
       if (def.class === 'sniper') this.aimTime *= 0.35
     }
     if (ammo.mag <= 0 && ammo.reserve > 0 && !(this.slot === 'primary' && this.target && this.target.position.distanceTo(this.position) < 9 && this.ammo.secondary.mag > 0)) {
@@ -2096,7 +2091,7 @@ export class Bot implements Actor {
     a.action = this.action
     a.actionT = clamp(this.actionT, 0, 1)
     a.emptyReload = this.reloadEmpty
-    a.pistol = WEAPONS[this.weaponId].class === 'pistol'
+    a.pistol = WEAPONS[this.weaponId].class === 'pistol' || WEAPONS[this.weaponId].class === 'machinePistol'
     a.ladder = this.ladder ? yawFromDirection(-this.ladder.normal.x, -this.ladder.normal.z) : null
     a.lod = !full
     this.anim.update(a)
@@ -2122,19 +2117,7 @@ export class Bot implements Actor {
     mesh.matrix.copy(this.rig.mesh.matrixWorld)
     this.game.render.scene.add(mesh)
     mesh.updateMatrixWorld(true)
-    // The dropped gun stays with the body; the soldier gets a fresh one.
-    const gun = this.dropped
-    if (gun) {
-      const slot = this.models.primary === gun ? 'primary' : 'secondary'
-      const fresh = createWorldWeaponModel(slot === 'primary' ? this.profile.primary : this.profile.secondary)
-      fresh.traverse((o) => {
-        o.castShadow = true
-      })
-      this.rig.root.add(fresh)
-      this.models[slot] = fresh
-      this.dropped = null
-    }
-    this.corpses.push({ mesh, mat, t: this.corpseT, gun })
+    this.corpses.push({ mesh, mat, t: this.corpseT })
   }
 
   private updateCorpses(dt: number) {
@@ -2145,12 +2128,10 @@ export class Bot implements Actor {
       const s = Math.min(1, (c.t - CORPSE_TIME) / SINK_TIME)
       c.mat.opacity = 1 - s * s * (3 - 2 * s)
       c.mesh.castShadow = c.mat.opacity > 0.55
-      if (c.gun && s > 0.6) c.gun.visible = false
       if (s >= 1) {
         c.mesh.removeFromParent()
         c.mesh.skeleton.dispose()
         c.mat.dispose()
-        c.gun?.removeFromParent()
         this.corpses.splice(i, 1)
       }
     }
@@ -2169,40 +2150,7 @@ export class Bot implements Actor {
       this.fadeMat.opacity = 1 - s * s * (3 - 2 * s)
       mesh.castShadow = this.fadeMat.opacity > 0.55
       this.ragdoll.sink(s * 0.2)
-      if (this.dropped) {
-        this.dropped.position.y -= dt * 0.05
-        if (s > 0.6) this.dropped.visible = false
-      }
-      if (s >= 1) {
-        this.rig.root.visible = false
-        if (this.dropped) this.dropped.visible = false
-      }
-    }
-    // Dropped gun physics.
-    const g = this.dropped
-    if (g && !this.dropRest) {
-      this.dropVel.y -= CONFIG.gravity * dt
-      const sp = this.dropVel.length()
-      if (sp > 1e-4) {
-        _dir.copy(this.dropVel).divideScalar(sp)
-        const hit = this.game.collision.raycast(g.position, _dir, sp * dt + 0.05)
-        if (hit) {
-          g.position.copy(hit.point).addScaledVector(hit.normal, 0.04)
-          if (sp < 2.5 || hit.normal.y > 0.7) {
-            this.dropRest = true
-            // Lie flat on its side.
-            const yaw = Math.random() * Math.PI * 2
-            g.rotation.set(0, yaw, Math.PI / 2, 'YXZ')
-          } else {
-            this.dropVel.reflect(hit.normal).multiplyScalar(0.3)
-          }
-        } else {
-          g.position.addScaledVector(this.dropVel, dt)
-          g.rotation.x += this.dropSpin.x * dt
-          g.rotation.y += this.dropSpin.y * dt
-          g.rotation.z += this.dropSpin.z * dt
-        }
-      }
+      if (s >= 1) this.rig.root.visible = false
     }
   }
 }

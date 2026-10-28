@@ -6,10 +6,10 @@
  *    generically: Actors become `{ $a: netId }` and Vector3s `{ $v: [x, y, z] }`.
  */
 import { Vector3 } from 'three'
-import type { Actor, Loadout, MatchSettings, ObjectiveId, Team, WeaponId } from '../core/types'
+import type { Actor, AttachmentId, Loadout, MatchSettings, ObjectiveId, Team, WeaponId } from '../core/types'
 import type { KillstreakId } from '../game/killstreaks/defs'
 
-export const WEAPON_IDS: WeaponId[] = ['acr', 'm4a1', 'ak47', 'ump45', 'intervention', 'spas12', 'usp45', 'deagle', 'frag', 'knife']
+export const WEAPON_IDS: WeaponId[] = ['acr', 'm4a1', 'ak47', 'ump45', 'intervention', 'rpd', 'rpg7', 'aa12', 'spas12', 'usp45', 'g18', 'deagle', 'frag', 'knife']
 const weaponIndex = (id: WeaponId) => Math.max(0, WEAPON_IDS.indexOf(id))
 
 export const MSG_SNAPSHOT = 1
@@ -262,12 +262,16 @@ export type ReliableMsg =
   | { t: 'respawnIn'; s: number }
   | { t: 'end' }
   // Client → host requests
-  | { t: 'fire'; w: WeaponId; o: [number, number, number]; d: [number, number, number][]; m: [number, number, number] }
+  | { t: 'fire'; w: WeaponId; o: [number, number, number]; d: [number, number, number][]; m: [number, number, number]; a?: AttachmentId | null }
   | { t: 'nade'; o: [number, number, number]; v: [number, number, number]; fuse: number }
-  | { t: 'knife' }
+  | { t: 'knife'; a?: AttachmentId | null }
   | { t: 'respawn' }
   /** Client → host: call in a held killstreak (target / heading from the map picker or sentry placement). */
   | { t: 'ks'; id: KillstreakId; p?: [number, number, number]; h?: number }
+  /** Client → host: take up to `want` rounds from dropped gun `id` (granted as a player:scavenge event). */
+  | { t: 'scav'; id: number; want: number }
+  /** Client → host: rounds left in the held gun (sent on change), so a death drops the right amount. */
+  | { t: 'ammo'; w: WeaponId; n: number }
   | { t: 'streak' }
 
 // ─── Generic event (de)serialisation ────────────────────────────────────────

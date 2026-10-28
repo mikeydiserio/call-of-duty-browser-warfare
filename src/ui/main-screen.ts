@@ -22,6 +22,8 @@ export class MainScreen implements Screen {
   private mapName: HTMLElement
   private mapLoc: HTMLElement
   private mapDesc: HTMLElement
+  private onlineCount: HTMLElement
+  private unsubOnline: (() => void) | null = null
 
   constructor(private ctx: UiCtx) {
     const root = this.el
@@ -110,6 +112,19 @@ export class MainScreen implements Screen {
       ['ENTER', 'CONFIRM'],
       ['ESC', 'BACK'],
     ])
+
+    // Players online (bottom right)
+    this.onlineCount = el('div', 'players-online', root)
+    this.onlineCount.setAttribute('role', 'status')
+  }
+
+  private renderOnlineCount() {
+    const lobby = this.ctx.game.lobby
+    const n = lobby.onlineCount
+    const status = !lobby.onlineAvailable ? 'offline' : n === null ? 'connecting' : 'online'
+    this.onlineCount.dataset.status = status
+    this.onlineCount.textContent =
+      status === 'offline' ? 'OFFLINE' : status === 'connecting' ? 'CONNECTING…' : `${n!.toLocaleString()} ${n === 1 ? 'PLAYER' : 'PLAYERS'} ONLINE`
   }
 
   enter() {
@@ -130,11 +145,16 @@ export class MainScreen implements Screen {
     this.cardXp.style.transform = `scaleX(${Math.max(0.02, Math.min(1, p))})`
     this.cardXpText.textContent = `${Math.floor(xp).toLocaleString()} / ${next.toLocaleString()} XP`
     this.drawPreview()
+    this.renderOnlineCount()
+    this.unsubOnline?.()
+    this.unsubOnline = g.lobby.onChange(() => this.renderOnlineCount())
     this.list.refresh()
     this.list.setIndex(this.list.idx, false)
   }
 
   leave() {
+    this.unsubOnline?.()
+    this.unsubOnline = null
     if (this.playerCard.classList.contains('editing')) this.commitNameEdit(false)
   }
 

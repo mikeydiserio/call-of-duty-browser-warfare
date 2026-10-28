@@ -1,6 +1,6 @@
 """Convert the "codmw2 - opfor" Source/Insurgency VPK into a web-ready OpFor kit.
 
-    python tools/convert_opfor.py "public/models/codmw2 - opfor.vpk" public/models/opfor
+    python tools/convert_opfor.py "assets-src/codmw2 - opfor.vpk" public/models/opfor
 
 Output:
   opfor.glb          one mesh per interchangeable part (body / head / kit / glasses / helmet),
@@ -323,7 +323,7 @@ def flat_normal(size) -> Image.Image:
 
 # ─── glTF writer ─────────────────────────────────────────────────────────────
 
-def write_glb(path: str, parts: list[Part], atlas_uv: dict[str, tuple[float, float, float, float]]):
+def write_glb(path: str, parts: list[Part], atlas_uv: dict[str, tuple[float, float, float, float]], prefix: str = "opfor"):
     bin_chunks: list[bytes] = []
     views, accessors, meshes, nodes = [], [], [], []
     offset = 0
@@ -365,18 +365,18 @@ def write_glb(path: str, parts: list[Part], atlas_uv: dict[str, tuple[float, flo
         nodes.append({"name": f"{p.category}-{p.name}", "mesh": len(meshes) - 1})
 
     doc = {
-        "asset": {"version": "2.0", "generator": "tools/convert_opfor.py"},
+        "asset": {"version": "2.0", "generator": f"tools/convert_{prefix}.py"},
         "scene": 0,
         "scenes": [{"nodes": list(range(len(nodes)))}],
         "nodes": nodes,
         "meshes": meshes,
         "materials": [{
-            "name": "opfor",
+            "name": prefix,
             "pbrMetallicRoughness": {"baseColorTexture": {"index": 0}, "metallicFactor": 0, "roughnessFactor": 0.78},
             "normalTexture": {"index": 1},
         }],
         "textures": [{"source": 0, "sampler": 0}, {"source": 1, "sampler": 0}],
-        "images": [{"uri": "opfor_albedo.jpg"}, {"uri": "opfor_normal.jpg"}],
+        "images": [{"uri": f"{prefix}_albedo.jpg"}, {"uri": f"{prefix}_normal.jpg"}],
         "samplers": [{"magFilter": 9729, "minFilter": 9987, "wrapS": 33071, "wrapT": 33071}],
         "buffers": [{"byteLength": offset}],
         "bufferViews": views,

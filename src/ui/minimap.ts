@@ -88,6 +88,7 @@ export class Minimap {
     const pt = { x: 0, y: 0 }
     const team = player.team
     const uav = g.mode.isUavActiveFor(player)
+    const heartbeat = player.weapons.attachmentId === 'heartbeatSensor'
     const now = g.realTime
 
     // UAV sweep
@@ -130,6 +131,7 @@ export class Minimap {
       const until = this.spotted.get(a.id)
       if (until !== undefined && until > now) alpha = Math.min(1, (until - now) / 0.5)
       if (g.mode.uavReveals(player, a)) alpha = Math.max(alpha, 0.9)
+      if (heartbeat && player.position.distanceToSquared(a.position) <= 24 * 24) alpha = Math.max(alpha, 0.8)
       if (alpha <= 0.01) continue
       toScreen(a.position.x, a.position.z, pt)
       if (pt.x < -6 || pt.y < -6 || pt.x > S + 6 || pt.y > S + 6) continue

@@ -2,7 +2,7 @@ import { Vector3, type Material, type Mesh } from 'three'
 import { BotManager } from '../ai/bots'
 import { AudioEngine } from '../audio/audio'
 import { Combat } from '../game/combat'
-import { DEFAULT_KILLSTREAKS } from '../game/killstreaks/defs'
+import { WeaponDrops } from '../game/drops'
 import { KillstreakManager } from '../game/killstreaks/manager'
 import { GameMode } from '../game/mode'
 import { Player } from '../player/player'
@@ -13,11 +13,12 @@ import { CollisionWorld } from '../world/collision'
 import { buildMap, getMapOption } from '../world/maps'
 import { createLobby, type NetHooks } from '../net'
 import type { LobbyService } from '../net/lobby'
+import { loadClasses, saveClasses } from './classes'
 import { CONFIG } from './config'
 import { EventBus } from './events'
 import { Input } from './input'
 import { damp } from './math'
-import type { Actor, Loadout, MapData, MatchSettings, NetRole, Team } from './types'
+import type { Actor, CustomClass, Loadout, MapData, MatchSettings, NetRole, Team } from './types'
 import { otherTeam } from './types'
 
 export interface Settings {
@@ -32,7 +33,6 @@ export interface Settings {
 }
 
 const SETTINGS_KEY = 'mw-rust-settings'
-const LOADOUT_KEY = 'mw-rust-loadout'
 
 /**
  * Top-level orchestrator. Owns every subsystem and the frame loop. Subsystems
@@ -50,6 +50,8 @@ export class Game {
   readonly streaks: KillstreakManager
   readonly player: Player
   readonly bots: BotManager
+  /** Guns dropped by dead soldiers (ammo scavenging). */
+  readonly drops: WeaponDrops
   readonly fx: Effects
   readonly audio: AudioEngine
   readonly ui: UI
@@ -57,7 +59,9 @@ export class Game {
   lobby: LobbyService
   actors: Actor[] = []
   settings: Settings
-  loadout: Loadout
+  /** The five Create-a-Class slots; `activeClass` is the one used on (re)spawn. */
+  classes: CustomClass[]
+  activeClass: number
   /** Lobby settings for the current/next match (mode, bots, limits). */
   match: MatchSettings = defaultMatch('tdm')
   /** Network role; 'offline' for solo vs bots. Set by the net layer (src/net). */
@@ -88,7 +92,9 @@ export class Game {
       quality: 'high',
       fullscreen: true,
     })
-    this.loadout = loadJSON<Loadout>(LOADOUT_KEY, { primary: 'acr', secondary: 'usp45', perks: ['sleightOfHand', 'stoppingPower', 'commando'], killstreaks: DEFAULT_KILLSTREAKS })
+    const store = loadClasses()
+    this.classes = store.classes
+    this.activeClass = store.active
 
     this.render = new GameRenderer(container)
     this.input = new Input(this.render.renderer.domElement)
@@ -101,6 +107,7 @@ export class Game {
     this.streaks = new KillstreakManager(this)
     this.player = new Player(this)
     this.bots = new BotManager(this)
+    this.drops = new WeaponDrops(this)
     this.fx = new Effects(this)
     this.audio = new AudioEngine(this)
     this.lobby = createLobby(this) // NET: OnlineLobby when configured, else OfflineLobby
@@ -128,16 +135,30 @@ export class Game {
     requestAnimationFrame(this.frame)
   }
 
+  /** Loadout of the active custom class (what the player spawns with). */
+  get loadout(): Loadout {
+    return this.classes[this.activeClass]!.loadout
+  }
+
+  set loadout(l: Loadout) {
+    this.classes[this.activeClass]!.loadout = l
+  }
+
+  saveClasses() {
+    saveClasses({ active: this.activeClass, classes: this.classes })
+  }
+
   /** Called by the UI when the player hits "Start match". Must be inside a user gesture. */
   startMatch(loadout: Loadout, match: MatchSettings = this.match) {
     const mapId = getMapOption(match.mapId).id
     if (mapId !== match.mapId) match = { ...match, mapId }
     this.loadout = loadout
     this.match = match
-    saveJSON(LOADOUT_KEY, loadout)
+    this.saveClasses()
     this.audio.unlock()
     this.combat.clearGrenades()
     this.bots.clear()
+    this.drops.clear()
     this.setMap(match.mapId)
     this.player.setLoadout(loadout)
     this.mode.id = match.mode
@@ -227,6 +248,7 @@ export class Game {
     this.input.unlock()
     this.combat.clearGrenades()
     this.bots.clear()
+    this.drops.clear()
     this.actors = []
     this.mode.setPhase('menu')
   }
@@ -271,6 +293,7 @@ export class Game {
         if (this.netRole !== 'client') this.mode.update(dt) // NET: clients mirror the host's mode
         this.player.update(dt)
         if (this.netRole !== 'client') this.bots.update(dt)
+        this.drops.update(dt)
         this.combat.update(dt)
       }
       this.streaks.update(dt)

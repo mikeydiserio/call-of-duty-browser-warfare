@@ -312,6 +312,7 @@ export class Hud {
     })
 
     ev.on('player:points', ({ amount, reason }) => this.addPoints(amount, reason))
+    ev.on('player:scavenge', ({ rounds }) => this.addPoints(rounds, 'AMMO'))
 
     ev.on('actor:damaged', (d) => {
       if (!d.victim.isPlayer || !d.attacker || d.attacker === d.victim) return

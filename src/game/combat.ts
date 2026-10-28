@@ -1,8 +1,8 @@
 import { Mesh, MeshStandardMaterial, SphereGeometry, Vector3 } from 'three'
 import { CONFIG } from '../core/config'
 import type { Game } from '../core/game'
-import type { Actor, ActorHit, DamageInfo, HitZone, WeaponDef, WeaponId, WorldHit } from '../core/types'
-import { damageAt, WEAPONS, ZONE_MULTIPLIER } from '../weapons/defs'
+import type { Actor, ActorHit, AttachmentId, DamageInfo, HitZone, WeaponDef, WeaponId, WorldHit } from '../core/types'
+import { attachmentFor, damageAt, weaponWithAttachment, WEAPONS, ZONE_MULTIPLIER } from '../weapons/defs'
 
 const MAX_RANGE = 400
 const _end = new Vector3()
@@ -45,11 +45,16 @@ export class Combat {
     dir: Vector3,
     tracer = true,
     tracerFrom?: Vector3,
+    attachment?: AttachmentId | null,
   ): { actor: Actor | null; world: WorldHit | null; point: Vector3 } {
-    this.game.net?.onShot(shooter, weaponId, origin, dir) // NET: clients forward fire requests to the host
-    const def = WEAPONS[weaponId]
+    const equipped = attachment === undefined
+      ? shooter.isPlayer ? attachmentFor(this.game.loadout, weaponId) : null
+      : attachment
+    this.game.net?.onShot(shooter, weaponId, origin, dir, equipped) // NET: clients forward fire requests to the host
+    const def = weaponWithAttachment(weaponId, equipped)
+    const explosive = def.class === 'launcher' || equipped === 'grenadeLauncher'
     const world = this.game.collision
-    let remaining = MAX_RANGE
+    let remaining = explosive ? 90 : MAX_RANGE
     let start = origin.clone()
     let damageScale = 1
     let travelled = 0
@@ -68,6 +73,9 @@ export class Combat {
         this.game.events.emit('bullet:impact', { point, normal: dir.clone().negate(), surface: 'metal', shooter })
         this.game.streaks.damageEnt(ks.ent, damageAt(def, travelled + ks.distance) * damageScale * this.stoppingPower(shooter), shooter)
         shooter.stats.shotsHit++
+        if (explosive && this.game.netRole !== 'client') {
+          this.launcherExplosion(point, shooter, weaponId, weaponId === 'rpg7' ? 5 : 4.5, weaponId === 'rpg7' ? 115 : 95)
+        }
         return { actor: null, world: null, point }
       }
       if (actorHit) break
@@ -93,7 +101,7 @@ export class Combat {
     if (tracer) this.game.events.emit('bullet:tracer', { from: tracerFrom ?? origin, to: endPoint, shooter })
     this.emitWhizz(shooter, origin, endPoint)
 
-    if (actorHit) {
+    if (actorHit && !explosive) {
       const dist = travelled + actorHit.hit.distance
       const base = damageAt(def, dist) * damageScale
       const zone = actorHit.hit.zone
@@ -110,18 +118,22 @@ export class Combat {
       })
       shooter.stats.shotsHit++
       this.game.events.emit('bullet:impact', { point: actorHit.hit.point, normal: dir.clone().negate(), surface: 'flesh', shooter })
-      return { actor: actorHit.actor, world: null, point: endPoint }
     }
+    if (actorHit && explosive) shooter.stats.shotsHit++
+    if (explosive && this.game.netRole !== 'client') {
+      this.launcherExplosion(endPoint, shooter, weaponId, weaponId === 'rpg7' ? 5 : 4.5, weaponId === 'rpg7' ? 115 : 95)
+    }
+    if (actorHit) return { actor: actorHit.actor, world: null, point: endPoint }
     return { actor: null, world: worldHit, point: endPoint }
   }
 
   /** Knife: short cone in front of attacker. Returns true if it connected. */
-  melee(attacker: Actor): boolean {
-    this.game.net?.onMelee(attacker) // NET
+  melee(attacker: Actor, attachment: AttachmentId | null = null): boolean {
+    this.game.net?.onMelee(attacker, attachment) // NET
     attacker.getEyePosition(_eye)
     const fwd = new Vector3(-Math.sin(attacker.yaw), 0, -Math.cos(attacker.yaw))
     let best: Actor | null = null
-    let bestD = WEAPONS.knife.rangeClose + 0.4
+    let bestD = WEAPONS.knife.rangeClose + (attachment === 'tacticalKnife' ? 0.95 : 0.4)
     for (const a of this.game.actors) {
       if (!a.alive || !this.game.mode.isEnemy(attacker, a)) continue
       _toEye.subVectors(a.position, attacker.position)
@@ -174,6 +186,29 @@ export class Combat {
       this.applyDamage({
         victim: a, attacker: owner, weaponId, amount: dmg, zone: 'torso',
         direction: mid.clone().sub(position).normalize(), point: mid.clone(), explosive: true,
+      })
+    }
+  }
+
+  private launcherExplosion(position: Vector3, owner: Actor, weaponId: WeaponId, radius: number, damage: number) {
+    this.game.events.emit('grenade:explode', { position: position.clone(), owner })
+    for (const actor of this.game.actors) {
+      if (!actor.alive || (actor !== owner && !this.game.mode.isEnemy(owner, actor))) continue
+      actor.getEyePosition(_eye)
+      const target = _closest.copy(actor.position).setY(actor.position.y + 0.9)
+      const distance = Math.min(position.distanceTo(target), position.distanceTo(_eye))
+      if (distance > radius) continue
+      const blast = position.clone().setY(position.y + 0.15)
+      if (!this.game.collision.lineOfSight(blast, target) && !this.game.collision.lineOfSight(blast, _eye)) continue
+      this.applyDamage({
+        victim: actor,
+        attacker: owner,
+        weaponId,
+        amount: damage * (1 - 0.82 * distance / radius),
+        zone: 'torso',
+        direction: target.clone().sub(position).normalize(),
+        point: target.clone(),
+        explosive: true,
       })
     }
   }

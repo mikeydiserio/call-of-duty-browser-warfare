@@ -1,13 +1,19 @@
 /**
- * First-person viewmodel: arms + weapon rigs, procedural spring-driven
- * animation (MW2 feel) and pooled effects. Lives in the renderer's
- * viewmodelScene; the viewmodel camera stays at the origin looking down -Z,
- * so "camera space" == viewmodel world space.
+ * First-person viewmodel. Two kinds of rig share one spring-driven motion layer
+ * (sway, bob, recoil, stances, sprint, lowering — MW2 feel) and pooled effects:
+ *
+ *   - MW2 rigs (gun-kit / mw2-rig): the converted MW2 viewmodels with their own
+ *     arms and animation clips, sequences timed by the WeaponSystem's actions.
+ *   - Procedural rigs: generated guns + IK-posed procedural arms. Used for the
+ *     RPG-7 (no MW2 model) and as a fallback while an MW2 model streams in.
+ *
+ * Lives in the renderer's viewmodelScene; the viewmodel camera stays at the
+ * origin looking down -Z, so "camera space" == viewmodel world space.
  *
  * The WeaponSystem owns gameplay state and hands us an AnimInput each frame;
  * everything here is presentation only.
  */
-import { DirectionalLight, Euler, Group, Mesh, MeshStandardMaterial, type PerspectiveCamera, Quaternion, type Scene, Vector3 } from 'three'
+import { DirectionalLight, Euler, Group, Mesh, MeshStandardMaterial, type Object3D, type PerspectiveCamera, Quaternion, type Scene, Vector3 } from 'three'
 import type { RenderContext, WeaponId } from '../core/types'
 import { clamp, damp, lerp, smoothstep, Spring } from '../core/math'
 import type { MovementState } from './weapon-system'
@@ -15,6 +21,8 @@ import { Arm } from './hands'
 import { IBL_BOOST, initViewmodelMaterials, mat } from './materials'
 import { getViewRig, type Pose, type ViewRig } from './rigs'
 import { type BrassKind, WeaponFx } from './fx'
+import { hasMw2, loadMw2Viewmodel, mw2Viewmodel, onGunsLoaded } from './gun-kit'
+import { Mw2Rig } from './mw2-rig'
 import { CylinderGeometry } from 'three'
 
 export type ActionKind =
@@ -53,6 +61,21 @@ export const VM_FOV = 52
 /** Sky-reflection gain for the first-person weapon (MW2 keeps guns readable in shade). */
 const VM_IBL_BOOST = 2.6
 const VM_FOV_ADS = 40
+/** The MW2 ports are posed for CS 1.6's 90° horizontal (73.7° vertical at 4:3) view. */
+const MW2_FOV = 74
+const MW2_FOV_ADS = 58
+/** MW2 shoot clips already kick the gun; the spring recoil only adds a little life. */
+const MW2_RECOIL = 0.45
+/** Muzzle flash size per MW2 weapon (matches the procedural rigs). */
+const MW2_FLASH: Partial<Record<WeaponId, number>> = {
+  acr: 1, m4a1: 1, ak47: 1.1, ump45: 0.9, intervention: 1.5, rpd: 1.15, aa12: 1.5, spas12: 1.6, usp45: 0.75, deagle: 1.3, g18: 0.8,
+}
+/** Weapons that cycle by hand after each shot (their shoot clip includes the bolt / pump). */
+const MANUAL_CYCLE: Partial<Record<WeaponId, true>> = { intervention: true, spas12: true }
+/** Grenade pullpin frame with the pin out and the grenade in front of the chest (the only frame it's on screen). */
+const FRAG_HOLD_FRAME = 8
+/** Share of the throw action spent on the wind-up (the frag leaves the hand at u = 0.3). */
+const FRAG_WINDUP = 0.22
 
 const seg = (u: number, a: number, b: number) => smoothstep(a, b, u)
 const easeIO = (t: number) => t * t * (3 - 2 * t)
@@ -65,6 +88,7 @@ const _v = new Vector3()
 const _v2 = new Vector3()
 const _e = new Euler(0, 0, 0, 'YXZ')
 const IDQ = new Quaternion()
+const EJECT_DIR = new Vector3(1, 0.4, 0.2)
 
 /** A blendable hand target in some holder's space. */
 interface HandTarget {
@@ -92,6 +116,18 @@ function toCam(t: HandTarget, holderPos: Vector3, holderQ: Quaternion) {
 
 const OPEN = [0.15, 0.1, 0.12, 0.15, 0.2]
 
+/** Spring/procedural motion offsets for one frame (applied around the gun). */
+interface Motion {
+  /** Eased ADS amount. */
+  e: number
+  ox: number
+  oy: number
+  oz: number
+  rx: number
+  ry: number
+  rz: number
+}
+
 export class Viewmodel {
   readonly root = new Group()
   readonly gun = new Group()
@@ -103,9 +139,26 @@ export class Viewmodel {
   private frag: ViewRig
   private knifeHolder = new Group()
   private fragHolder = new Group()
+  private procedural = new Group()
   private shellProp: Mesh
   private scene: Scene
   private cam: PerspectiveCamera
+
+  // weapon wanted by the WeaponSystem (the MW2 model may still be streaming in)
+  private wantId: WeaponId | null = null
+  private wantSil = false
+  // MW2 rigs
+  private mw2: Mw2Rig | null = null
+  private mw2Rigs = new Map<WeaponId, Mw2Rig>()
+  private mwShown: Mw2Rig | null = null
+  private mwShootSeq: string | null = null
+  private mwShootT = 99
+  private mwShootSpeed = 1
+  private mwFired = false
+  private mwIdleT = 0
+  private mwPopT = 1
+  private mwLastAct: ActionKind = 'none'
+  private mwSlash = 'slash1'
 
   // poses
   private hipPos = new Vector3()
@@ -134,6 +187,7 @@ export class Viewmodel {
   private lh = mkTarget()
   private tmpT = mkTarget()
   private tmpT2 = mkTarget()
+  private mo: Motion = { e: 0, ox: 0, oy: 0, oz: 0, rx: 0, ry: 0, rz: 0 }
 
   constructor(ctx: RenderContext) {
     initViewmodelMaterials()
@@ -154,8 +208,9 @@ export class Viewmodel {
     const rim = new DirectionalLight(0xffe0bc, 0.9)
     rim.position.set(0.9, 0.4, -0.6)
     this.scene.add(fill, fill.target, rim, rim.target)
-    this.root.add(this.gun, this.knifeHolder, this.fragHolder)
-    this.root.add(this.armR.hand.root, this.armR.forearm.root, this.armL.hand.root, this.armL.forearm.root)
+    this.root.add(this.procedural)
+    this.procedural.add(this.gun, this.knifeHolder, this.fragHolder)
+    this.procedural.add(this.armR.hand.root, this.armR.forearm.root, this.armL.hand.root, this.armL.forearm.root)
     this.fx = new WeaponFx(this.scene)
     this.knife = getViewRig('knife')
     this.knifeHolder.add(this.knife.root)
@@ -170,33 +225,70 @@ export class Viewmodel {
     this.armL.hand.holdPoint.add(this.shellProp)
     const brassCap = new Mesh(new CylinderGeometry(0.0112, 0.0112, 0.014, 12, 1).rotateX(Math.PI / 2).translate(0, 0, 0.033), mat('brass'))
     this.shellProp.add(brassCap)
+    // Swap the procedural stand-in for the MW2 model as soon as it streams in.
+    onGunsLoaded(() => {
+      if (this.wantId && !this.mw2 && mw2Viewmodel(this.wantId)) this.setWeapon(this.wantId, this.wantSil)
+    })
   }
 
-  /** Pre-build every weapon rig so switching never hitches (call during loading). */
+  /** Pre-build weapon rigs so switching never hitches (call during loading). */
   prewarm(ids: WeaponId[]) {
-    for (const id of ids) getViewRig(id)
+    for (const id of ids) {
+      if (mw2Viewmodel(id)) this.mw2Rig(id)
+      else getViewRig(id)
+    }
   }
 
-  setWeapon(id: WeaponId) {
-    const r = getViewRig(id)
-    if (this.rig === r) return
-    if (this.rig) {
-      this.gun.remove(this.rig.root)
-      this.resetParts(this.rig)
+  /** The MW2 rig for a weapon, built on first use; null until its model has loaded. */
+  private mw2Rig(id: WeaponId): Mw2Rig | null {
+    let r = this.mw2Rigs.get(id)
+    if (r) return r
+    const asset = mw2Viewmodel(id)
+    if (!asset) return null
+    r = new Mw2Rig(asset)
+    r.holder.visible = false
+    this.root.add(r.holder)
+    this.mw2Rigs.set(id, r)
+    return r
+  }
+
+  setWeapon(id: WeaponId, suppressed = false) {
+    this.wantId = id
+    this.wantSil = suppressed
+    const m = this.mw2Rig(id)
+    if (m) {
+      if (this.mw2 !== m) {
+        this.mw2 = m
+        m.reset()
+        this.mwShootT = 99
+        this.mwShootSeq = null
+      }
+      m.setSilenced(suppressed)
+      this.fx.attachFlash(m.muzzleNode)
+      return
     }
-    this.rig = r
-    this.gun.add(r.root)
+    this.mw2 = null
+    if (hasMw2(id)) void loadMw2Viewmodel(id)
+    const r = getViewRig(id)
+    if (this.rig !== r) {
+      if (this.rig) {
+        this.gun.remove(this.rig.root)
+        this.resetParts(this.rig)
+      }
+      this.rig = r
+      this.gun.add(r.root)
+      const meta = r.meta
+      this.hipPos.set(...meta.hipPos)
+      this.hipQ.setFromEuler(_e.set(meta.hipRot[0], meta.hipRot[1], meta.hipRot[2], 'YXZ'))
+      // ADS: put the sight line on the camera axis at eye-relief distance.
+      this.adsPos.set(-meta.sight[0], -meta.sight[1], -meta.relief - meta.sight[2])
+      this.slideT = 0
+    }
     this.fx.attachFlash(r.muzzle)
-    const m = r.meta
-    this.hipPos.set(...m.hipPos)
-    this.hipQ.setFromEuler(_e.set(m.hipRot[0], m.hipRot[1], m.hipRot[2], 'YXZ'))
-    // ADS: put the sight line on the camera axis at eye-relief distance.
-    this.adsPos.set(-m.sight[0], -m.sight[1], -m.relief - m.sight[2])
-    this.slideT = 0
   }
 
   get weaponId() {
-    return this.rig?.id
+    return this.wantId ?? this.rig?.id
   }
 
   private resetParts(r: ViewRig) {
@@ -212,51 +304,77 @@ export class Viewmodel {
     this.root.visible = v
   }
 
-  /** Per-shot feedback: kick springs, flash, smoke, brass, slide blowback. */
-  onFire(recoilV: number, recoilH: number, ads: number, cls: string, suppressed: boolean) {
-    const m = this.rig.meta
-    const a = 1 - ads * 0.55
+  /** Per-shot feedback: kick springs, flash, smoke, brass, slide blowback. `cycle` = seconds between shots. */
+  onFire(recoilV: number, recoilH: number, ads: number, cls: string, suppressed: boolean, cycle = 0.1) {
+    const mw2 = this.mw2
+    const a = (1 - ads * 0.55) * (mw2 ? MW2_RECOIL : 1)
     const heavy = clamp(recoilV / 1.2, 0.35, 2.5)
     this.kBack.impulse(0.32 * heavy * a + 0.1)
     this.kPitch.impulse((0.9 + Math.random() * 0.4) * heavy * a)
     this.kYaw.impulse((Math.random() - 0.5) * recoilH * 1.6 * a)
     this.kRoll.impulse((Math.random() - 0.35) * 1.4 * heavy * a)
-    this.fx.muzzleFlash(m.flashScale ?? 1, suppressed)
-    if (cls === 'pistol') this.slideT = 0.06
-    if (m.type === 'rifle' || m.type === 'pistol') this.ejectBrass(cls === 'pistol' ? 'pistol' : 'rifle')
+    const handgun = cls === 'pistol' || cls === 'machinePistol'
+    let muzzle: Object3D
+    if (mw2) {
+      this.fx.muzzleFlash(MW2_FLASH[mw2.id] ?? 1, suppressed)
+      this.mwFired = true
+      this.mwCycle = cycle
+      if (!MANUAL_CYCLE[mw2.id]) this.ejectBrass(handgun ? 'pistol' : cls === 'shotgun' ? 'shell' : 'rifle')
+      muzzle = mw2.muzzleNode
+    } else {
+      const m = this.rig.meta
+      this.fx.muzzleFlash(m.flashScale ?? 1, suppressed)
+      if (handgun) this.slideT = 0.06
+      if (m.type === 'rifle' || m.type === 'pistol') this.ejectBrass(handgun ? 'pistol' : cls === 'shotgun' ? 'shell' : 'rifle')
+      muzzle = this.rig.muzzle
+    }
     if (Math.random() < (cls === 'sniper' || cls === 'shotgun' ? 1 : 0.35)) {
-      this.rig.muzzle.getWorldPosition(_v)
+      muzzle.getWorldPosition(_v)
       this.fx.puff(_v, cls === 'sniper' || cls === 'shotgun' ? 1.6 : 1)
     }
   }
+  private mwCycle = 0.1
 
   ejectBrass(kind: BrassKind) {
-    const r = this.rig
-    r.eject.getWorldPosition(_v)
-    _v2.set(...r.meta.ejectDir).normalize().applyQuaternion(this.gun.quaternion)
+    const m = this.mw2
+    if (m) {
+      // the bone chain is mirrored: take "gun right" from the (proper) holder/ADS rotation instead
+      m.eject.getWorldPosition(_v)
+      _q.copy(m.holder.quaternion).multiply(m.ads.quaternion)
+      _v2.copy(EJECT_DIR).normalize().applyQuaternion(_q)
+    } else {
+      const r = this.rig
+      r.eject.getWorldPosition(_v)
+      _v2.set(...r.meta.ejectDir).normalize().applyQuaternion(this.gun.quaternion)
+    }
     this.fx.eject(kind, _v, _v2)
   }
 
   /** Viewmodel muzzle -> NDC (x, y in -1..1). */
   muzzleNdc(out: Vector3): Vector3 {
-    const m = this.knifeHolder.visible || this.fragHolder.visible ? this.gun : this.rig.muzzle
+    let m: Object3D
+    if (this.mw2) m = this.mwShown === this.mw2 ? this.mw2.muzzleNode : (this.mwShown?.holder ?? this.mw2.holder)
+    else m = this.knifeHolder.visible || this.fragHolder.visible ? this.gun : this.rig.muzzle
     m.updateWorldMatrix(true, false)
     out.setFromMatrixPosition(m.matrixWorld)
     return out.project(this.cam)
   }
 
   update(dt: number, a: AnimInput) {
-    const rig = this.rig
-    const meta = rig.meta
-    const type = meta.type
-    const mv = a.move
-    const pistol = type === 'pistol'
+    const pistol = this.mw2 ? false : this.rig.meta.type === 'pistol'
+    this.motion(dt, a, pistol)
+    if (this.mw2) this.updateMw2(dt, a)
+    else this.updateProcedural(dt, a)
+    this.root.updateMatrixWorld(true)
+    this.fx.update(dt)
+    IBL_BOOST.value = VM_IBL_BOOST
+  }
 
-    // ── base: hip <-> ADS ──
+  /** Shared spring motion: breathing, bob, stances, landing, look sway, recoil, sprint pose. */
+  private motion(dt: number, a: AnimInput, pistol: boolean) {
+    const mv = a.move
     const e = easeIO(clamp(a.ads, 0, 1))
     const free = 1 - e * 0.92 // how much "life" the gun has (ADS keeps it steady)
-    const pos = _p.copy(this.hipPos).lerp(this.adsPos, e)
-    const rot = _q.copy(this.hipQ).slerp(IDQ, e)
     let ox = 0
     let oy = 0
     let oz = 0
@@ -347,6 +465,204 @@ export class Viewmodel {
       ry += Math.sin(ph) * 0.05 * sp
       oy += Math.abs(Math.cos(ph)) * -0.012 * sp
     }
+    const mo = this.mo
+    mo.e = e
+    mo.ox = ox
+    mo.oy = oy
+    mo.oz = oz
+    mo.rx = rx
+    mo.ry = ry
+    mo.rz = rz
+  }
+
+  /** Lowered pose (switch / ladder / knife / frag), added to the motion offsets. */
+  private applyLower(lower: number) {
+    if (lower <= 0) return
+    const l = easeIO(Math.min(lower, 1))
+    const mo = this.mo
+    mo.ox += -0.04 * l
+    mo.oy += -0.26 * l
+    mo.oz += 0.06 * l
+    mo.rx += -0.7 * l
+    mo.rz += 0.35 * l
+    mo.ry += 0.2 * l
+  }
+
+  private setFov(hip: number, ads: number, e: number) {
+    const fov = lerp(hip, ads, e)
+    if (Math.abs(this.cam.fov - fov) > 0.01) {
+      this.cam.fov = fov
+      this.cam.updateProjectionMatrix()
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // MW2 rigs: clip sequences driven by the action timeline
+  // ═══════════════════════════════════════════════════════════════════════
+
+  private updateMw2(dt: number, a: AnimInput) {
+    const gun = this.mw2!
+    const act = a.action
+    const u = a.u
+    const started = act !== this.mwLastAct
+    this.mwLastAct = act
+    let show: Mw2Rig = gun
+    let lower = clamp(a.ladder, 0, 1)
+    let ads = this.mo.e
+    let seq: string | null = null
+    let t = 0
+    let loop = false
+    let cut = false
+
+    if (this.mwFired) {
+      this.mwFired = false
+      const empty = a.ammo <= 1 && gun.has('shoot_empty')
+      this.mwShootSeq = gun.seq(empty ? 'shoot_empty' : 'shoot')
+      const d = gun.duration(this.mwShootSeq)
+      // bolt / pump clips are stretched to fit the fire-rate window
+      this.mwShootSpeed = MANUAL_CYCLE[gun.id] ? Math.max(1, d / Math.max(this.mwCycle, 0.05)) : 1
+      this.mwShootT = 0
+      cut = true
+    } else this.mwShootT += dt * this.mwShootSpeed
+    this.mwIdleT += dt
+    // action sequences are stretched over the gameplay action so they stay in sync
+    const scaled = (role: string): [string | null, number] => {
+      const s = gun.seq(role)
+      return [s, u * gun.duration(s)]
+    }
+
+    switch (act) {
+      case 'reload':
+        ;[seq, t] = scaled('reload')
+        break
+      case 'shellStart':
+        ;[seq, t] = scaled('start_reload')
+        break
+      case 'shell':
+        ;[seq, t] = scaled('insert')
+        break
+      case 'shellEnd':
+        ;[seq, t] = scaled('after_reload')
+        break
+      case 'raise':
+        ;[seq, t] = scaled('draw')
+        if (gun.duration(seq) < 0.1) lower = Math.max(lower, 1 - easeIO(clamp(u, 0, 1)))
+        break
+      case 'drop':
+        lower = Math.max(lower, easeIO(u))
+        break
+      case 'bolt':
+      case 'pump': {
+        // the shoot clip carries the cycling; spit the case where the clip racks it
+        const ejectAt = act === 'bolt' ? 0.44 : 0.32
+        if (u >= ejectAt && this.lastShellEject < ejectAt) this.ejectBrass(act === 'bolt' ? 'sniper' : 'shell')
+        break
+      }
+      case 'knife': {
+        const k = this.mw2Rig('knife')
+        if (k) {
+          if (started) this.mwSlash = this.mwSlash === 'slash1' ? 'slash2' : 'slash1'
+          show = k
+          seq = k.seq(this.mwSlash) ?? k.seq('slash1')
+          t = u * k.duration(seq)
+          lower = Math.max(lower, 1 - seg(u, 0, 0.1), seg(u, 0.86, 1))
+        } else lower = Math.max(lower, seg(u, 0, 0.14) * (1 - seg(u, 0.62, 0.95)))
+        ads = 0
+        break
+      }
+      case 'fragPull':
+      case 'fragHold':
+      case 'fragThrow': {
+        const f = this.mw2Rig('frag')
+        ads = 0
+        if (!f) {
+          lower = 1
+          break
+        }
+        show = f
+        // pullpin runs on into the wind-up (arm cocked behind the camera); cook at the pin-out frame
+        const pull = f.seq('pullpin')
+        const held = Math.min(f.duration(pull), FRAG_HOLD_FRAME / (f.meta.sequences[pull ?? '']?.fps ?? 30))
+        if (act === 'fragPull') {
+          seq = pull
+          t = u * held
+          lower = Math.max(lower, 1 - seg(u, 0, 0.2))
+        } else if (act === 'fragHold') {
+          seq = pull
+          t = held
+        } else if (u < FRAG_WINDUP) {
+          seq = pull
+          t = lerp(held, f.duration(pull), u / FRAG_WINDUP)
+        } else {
+          seq = f.seq('throw')
+          t = seg(u, FRAG_WINDUP, 0.85) * f.duration(seq)
+          lower = Math.max(lower, seg(u, 0.85, 1))
+        }
+        break
+      }
+    }
+    this.lastShellEject = act === 'bolt' || act === 'pump' ? u : -1
+
+    // Gun idle / firing when no action sequence owns the gun.
+    if (show === gun && seq === null) {
+      const shootDur = gun.duration(this.mwShootSeq)
+      if (this.mwShootSeq && this.mwShootT < shootDur) {
+        seq = this.mwShootSeq
+        t = this.mwShootT
+      } else if (a.ammo === 0 && gun.has('shoot_empty') && this.mwShootSeq === gun.seq('shoot_empty')) {
+        // slide locked back after the last round
+        seq = this.mwShootSeq
+        t = shootDur
+      } else {
+        seq = gun.seq('idle')
+        t = this.mwIdleT
+        loop = true
+      }
+    }
+
+    // Visibility: one MW2 rig at a time; a rig that pops in rises from below.
+    if (this.mwShown !== show) {
+      if (this.mwShown) this.mwShown.holder.visible = false
+      if (this.mwShown && show === gun && act !== 'raise') this.mwPopT = 0
+      this.mwShown = show
+      cut = true
+    }
+    for (const r of this.mw2Rigs.values()) r.holder.visible = r === show
+    this.procedural.visible = false
+    this.mwPopT = Math.min(1, this.mwPopT + dt / 0.22)
+    lower = Math.max(lower, 1 - easeIO(this.mwPopT))
+
+    if (seq) show.play(seq, t, dt, loop, cut)
+    this.applyLower(lower)
+
+    // holder = P + offset, rotated by the springs around the gun pivot P; ads = the sight-alignment blend
+    const mo = this.mo
+    _q.copy(IDQ).slerp(show.adsQ, ads)
+    _p.copy(show.adsP).multiplyScalar(ads)
+    _v.copy(show.pivot).applyQuaternion(_q).add(_p) // P
+    show.ads.quaternion.copy(_q)
+    show.ads.position.copy(_p).sub(_v)
+    show.holder.position.set(_v.x + mo.ox, _v.y + mo.oy, _v.z + mo.oz)
+    show.holder.quaternion.setFromEuler(_e.set(mo.rx, mo.ry, mo.rz, 'YXZ'))
+    this.setFov(MW2_FOV, MW2_FOV_ADS, ads)
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Procedural rigs
+  // ═══════════════════════════════════════════════════════════════════════
+
+  private updateProcedural(dt: number, a: AnimInput) {
+    for (const r of this.mw2Rigs.values()) r.holder.visible = false
+    this.mwShown = null
+    this.procedural.visible = true
+    const rig = this.rig
+    const meta = rig.meta
+    const type = meta.type
+    const pistol = type === 'pistol'
+    const mo = this.mo
+    const e = mo.e
+    const pos = _p.copy(this.hipPos).lerp(this.adsPos, e)
+    const rot = _q.copy(this.hipQ).slerp(IDQ, e)
 
     // ── action animation ──
     let lower = clamp(a.ladder, 0, 1)
@@ -376,24 +692,24 @@ export class Viewmodel {
         break
       case 'raise':
         lower = Math.max(lower, 1 - easeIO(clamp(u, 0, 1)))
-        if (a.firstRaise) rx += (1 - easeIO(u)) * 0.4
+        if (a.firstRaise) mo.rx += (1 - easeIO(u)) * 0.4
         break
       case 'reload': {
         const empty = a.empty
         const tilt = seg(u, 0.0, 0.16) - seg(u, empty ? 0.86 : 0.8, 1)
         if (pistol) {
-          rx += 0.3 * tilt
-          rz += -0.35 * tilt
-          ry += 0.15 * tilt
-          ox += -0.02 * tilt
-          oy += 0.05 * tilt
+          mo.rx += 0.3 * tilt
+          mo.rz += -0.35 * tilt
+          mo.ry += 0.15 * tilt
+          mo.ox += -0.02 * tilt
+          mo.oy += 0.05 * tilt
         } else {
-          rx += 0.17 * tilt
-          rz += -0.5 * tilt
-          ry += 0.12 * tilt
-          ox += -0.06 * tilt
-          oy += 0.07 * tilt
-          oz += 0.04 * tilt
+          mo.rx += 0.17 * tilt
+          mo.rz += -0.5 * tilt
+          mo.ry += 0.12 * tilt
+          mo.ox += -0.06 * tilt
+          mo.oy += 0.07 * tilt
+          mo.oz += 0.04 * tilt
         }
         // magazine path
         const out = seg(u, 0.14, 0.26) * 0.05 + seg(u, 0.26, 0.4) * 0.32
@@ -403,8 +719,10 @@ export class Viewmodel {
         if (!magIn) magOff = out
         else magOff = back * 0.37 + ins * 0.05 * (1 - back)
         if (empty && u > 0.18 && u < 0.44) magVis = false
+        // a spent warhead is already gone: nothing to hold until the fresh one comes up
+        if (empty && meta.magSpent && u < 0.44) magVis = false
         // magazine drop on empty: free-falling copy
-        const dropNow = empty && u > 0.18 && u < 0.44
+        const dropNow = empty && !meta.magSpent && u > 0.18 && u < 0.44
         if (dropNow && !this.lastMagOut && rig.mag) this.fx.dropMag(rig.mag)
         this.lastMagOut = dropNow
         // left hand: base -> mag -> (pouch) -> mag -> base / charging handle
@@ -453,9 +771,9 @@ export class Viewmodel {
       case 'bolt': {
         // right hand leaves the grip to work the bolt; gun cants left
         const tilt = seg(u, 0.0, 0.18) - seg(u, 0.78, 1)
-        rz += -0.22 * tilt
-        rx += 0.06 * tilt
-        oy += -0.01 * tilt
+        mo.rz += -0.22 * tilt
+        mo.rx += 0.06 * tilt
+        mo.oy += -0.01 * tilt
         boltRot = seg(u, 0.18, 0.3) * (1 - seg(u, 0.62, 0.72))
         boltT = seg(u, 0.3, 0.44) * (1 - seg(u, 0.5, 0.62))
         if (u >= 0.44 && this.lastShellEject < 0.44) this.ejectBrass('sniper')
@@ -473,9 +791,9 @@ export class Viewmodel {
       case 'pump': {
         pumpT = seg(u, 0.05, 0.32) * (1 - seg(u, 0.42, 0.72))
         if (u >= 0.32 && this.lastShellEject < 0.32) this.ejectBrass('shell')
-        rx += 0.05 * pumpT
-        rz += 0.04 * pumpT
-        oz += 0.01 * pumpT
+        mo.rx += 0.05 * pumpT
+        mo.rz += 0.04 * pumpT
+        mo.oz += 0.01 * pumpT
         break
       }
       case 'shellStart':
@@ -483,9 +801,9 @@ export class Viewmodel {
       case 'shellEnd': {
         // gun rolled right to expose the loading port; left hand feeds shells from below
         const tilt = act === 'shellStart' ? seg(u, 0, 0.8) : act === 'shellEnd' ? 1 - seg(u, 0.1, 0.7) : 1
-        rz += 0.5 * tilt
-        rx += 0.1 * tilt
-        ox += -0.02 * tilt
+        mo.rz += 0.5 * tilt
+        mo.rx += 0.1 * tilt
+        mo.ox += -0.02 * tilt
         const lp = rig.poses.loadHold
         if (lp) {
           setT(this.tmpT, lp)
@@ -576,23 +894,16 @@ export class Viewmodel {
       }
     }
     this.lastShellEject = act === 'bolt' || act === 'pump' ? u : -1
+    if (meta.magSpent && a.ammo === 0 && act !== 'reload') magVis = false
     if (act !== 'knife') this.knifeHolder.visible = false
     if (act !== 'fragPull' && act !== 'fragHold' && act !== 'fragThrow') this.fragHolder.visible = false
 
     // ── lowered (switch / ladder / knife / frag) ──
-    if (lower > 0) {
-      const l = easeIO(lower)
-      ox += -0.04 * l
-      oy += -0.26 * l
-      oz += 0.06 * l
-      rx += -0.7 * l
-      rz += 0.35 * l
-      ry += 0.2 * l
-    }
+    this.applyLower(lower)
 
     // ── compose gun transform ──
-    this.gun.position.set(pos.x + ox, pos.y + oy, pos.z + oz)
-    _e.set(rx, ry, rz, 'YXZ')
+    this.gun.position.set(pos.x + mo.ox, pos.y + mo.oy, pos.z + mo.oz)
+    _e.set(mo.rx, mo.ry, mo.rz, 'YXZ')
     _q2.setFromEuler(_e)
     this.gun.quaternion.copy(rot).multiply(_q2)
     this.gun.visible = lower < 0.995 || rhOn === 'gun'
@@ -638,16 +949,7 @@ export class Viewmodel {
     this.applyHand(this.armR, this.rh)
     this.applyHand(this.armL, this.lh)
 
-    // ── viewmodel FOV ──
-    const fov = lerp(VM_FOV, VM_FOV_ADS, e)
-    if (Math.abs(this.cam.fov - fov) > 0.01) {
-      this.cam.fov = fov
-      this.cam.updateProjectionMatrix()
-    }
-
-    this.root.updateMatrixWorld(true)
-    this.fx.update(dt)
-    IBL_BOOST.value = VM_IBL_BOOST
+    this.setFov(VM_FOV, VM_FOV_ADS, e)
   }
 
   private applyHand(arm: Arm, t: HandTarget) {
@@ -658,7 +960,7 @@ export class Viewmodel {
     arm.solve()
   }
 
-  /** Debug: live-tune a hand sock / hip pose of the current rig (weapon space, YXZ euler). */
+  /** Debug: live-tune a hand sock / hip pose of the current procedural rig (weapon space, YXZ euler). */
   debugSock(which: 'rh' | 'lh' | 'magHold' | 'chargeHold' | 'loadHold' | 'hip', p?: number[], r?: number[], grip?: number[], id?: WeaponId) {
     const rig = id ? getViewRig(id) : this.rig
     if (which === 'hip') {
@@ -673,6 +975,11 @@ export class Viewmodel {
     if (grip) for (let i = 0; i < 5; i++) pose.grip[i] = grip[i]!
   }
 
+  /** Debug: the active MW2 rig (ADS / sight tuning). */
+  get debugMw2(): Mw2Rig | null {
+    return this.mw2
+  }
+
   reset() {
     this.fx.reset()
     this.kBack.value = this.kBack.velocity = 0
@@ -683,5 +990,10 @@ export class Viewmodel {
     this.lastMagOut = false
     if (this.rig) this.resetParts(this.rig)
     this.resetParts(this.frag)
+    for (const r of this.mw2Rigs.values()) r.reset()
+    this.mwShootT = 99
+    this.mwShootSeq = null
+    this.mwFired = false
+    this.mwPopT = 1
   }
 }

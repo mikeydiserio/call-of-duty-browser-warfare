@@ -1,4 +1,4 @@
-import type { WeaponDef, WeaponId } from '../core/types'
+import type { AttachmentId, Loadout, WeaponDef, WeaponId } from '../core/types'
 
 /**
  * Weapon stats modelled on MW2 (2009) multiplayer values: 100 HP, ARs 3-4
@@ -40,6 +40,27 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     hipSpread: 9.0, hipSpreadMax: 14.0, adsSpread: 0.0, recoilV: 3.5, recoilH: 0.8,
     adsTime: 0.38, adsZoom: 0.24, mobility: 0.9, penetration: 1.0,
   },
+  rpd: {
+    id: 'rpd', name: 'L86 LSW', class: 'lmg', slot: 'primary', auto: true,
+    rpm: 700, magSize: 100, reserve: 200, reloadTime: 5.2, reloadEmptyTime: 5.8,
+    damageClose: 40, damageFar: 30, rangeClose: 25, rangeFar: 55, headMultiplier: 1.4, pellets: 1,
+    hipSpread: 4.0, hipSpreadMax: 9.0, adsSpread: 0.12, recoilV: 0.72, recoilH: 0.32,
+    adsTime: 0.34, adsZoom: 0.78, mobility: 0.78, penetration: 0.8,
+  },
+  rpg7: {
+    id: 'rpg7', name: 'RPG-7', class: 'launcher', slot: 'primary', auto: false,
+    rpm: 35, magSize: 1, reserve: 3, reloadTime: 3.8, reloadEmptyTime: 4.2,
+    damageClose: 115, damageFar: 15, rangeClose: 4, rangeFar: 9, headMultiplier: 1, pellets: 1,
+    hipSpread: 1.5, hipSpreadMax: 4.0, adsSpread: 0.4, recoilV: 2.4, recoilH: 0.5,
+    adsTime: 0.42, adsZoom: 0.72, mobility: 0.72, penetration: 0,
+  },
+  aa12: {
+    id: 'aa12', name: 'M1014', class: 'shotgun', slot: 'primary', auto: true,
+    rpm: 300, magSize: 8, reserve: 32, reloadTime: 2.8, reloadEmptyTime: 3.3,
+    damageClose: 18, damageFar: 5, rangeClose: 7, rangeFar: 22, headMultiplier: 1, pellets: 8,
+    hipSpread: 5.2, hipSpreadMax: 6.8, adsSpread: 4.2, recoilV: 2.2, recoilH: 0.8,
+    adsTime: 0.25, adsZoom: 0.88, mobility: 0.92, penetration: 0.15,
+  },
   spas12: {
     id: 'spas12', name: 'SPAS-12', class: 'shotgun', slot: 'secondary', auto: false,
     rpm: 80, magSize: 8, reserve: 32, reloadTime: 3.0, reloadEmptyTime: 3.6,
@@ -55,11 +76,18 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     adsTime: 0.14, adsZoom: 0.9, mobility: 1.1, penetration: 0.3,
   },
   deagle: {
-    id: 'deagle', name: 'Desert Eagle', class: 'pistol', slot: 'secondary', auto: false,
+    id: 'deagle', name: '.44 Magnum', class: 'pistol', slot: 'secondary', auto: false,
     rpm: 260, magSize: 7, reserve: 28, reloadTime: 1.8, reloadEmptyTime: 2.1,
     damageClose: 55, damageFar: 40, rangeClose: 12, rangeFar: 30, headMultiplier: 1.4, pellets: 1,
     hipSpread: 2.6, hipSpreadMax: 5.5, adsSpread: 0.4, recoilV: 2.4, recoilH: 0.6,
     adsTime: 0.16, adsZoom: 0.9, mobility: 1.1, penetration: 0.45,
+  },
+  g18: {
+    id: 'g18', name: 'G18', class: 'machinePistol', slot: 'secondary', auto: true,
+    rpm: 900, magSize: 20, reserve: 120, reloadTime: 1.7, reloadEmptyTime: 2.0,
+    damageClose: 25, damageFar: 18, rangeClose: 8, rangeFar: 22, headMultiplier: 1.2, pellets: 1,
+    hipSpread: 3.0, hipSpreadMax: 7.0, adsSpread: 0.55, recoilV: 0.8, recoilH: 0.6,
+    adsTime: 0.16, adsZoom: 0.92, mobility: 1.12, penetration: 0.25,
   },
   frag: {
     id: 'frag', name: 'Frag', class: 'grenade', slot: 'equipment', auto: false,
@@ -77,8 +105,97 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
 }
 
-export const PRIMARIES: WeaponId[] = ['acr', 'm4a1', 'ak47', 'ump45', 'intervention']
-export const SECONDARIES: WeaponId[] = ['usp45', 'deagle', 'spas12']
+export const PRIMARIES: WeaponId[] = ['acr', 'm4a1', 'ak47', 'ump45', 'intervention', 'rpd', 'rpg7', 'aa12']
+export const SECONDARIES: WeaponId[] = ['usp45', 'deagle', 'g18', 'spas12']
+
+export const ATTACHMENT_IDS: AttachmentId[] = [
+  'redDot', 'holographic', 'silencer', 'grip', 'heartbeatSensor', 'acog',
+  'thermal', 'extendedMags', 'fmj', 'rapidFire', 'tacticalKnife', 'grenadeLauncher',
+]
+
+export const ATTACHMENTS: Record<AttachmentId, { name: string; description: string }> = {
+  redDot: { name: 'Red Dot Sight', description: 'A clean optic improves aim-down-sights accuracy.' },
+  holographic: { name: 'Holographic Sight', description: 'A precise holographic reticle improves aim-down-sights accuracy.' },
+  silencer: { name: 'Silencer', description: 'Keeps shots off enemy radar at the cost of some range and damage.' },
+  grip: { name: 'Grip', description: 'Reduces recoil for steadier follow-up shots.' },
+  heartbeatSensor: { name: 'Heartbeat Sensor', description: 'Reveals nearby enemies on the minimap.' },
+  acog: { name: 'ACOG Scope', description: 'Magnifies the sight picture and improves long-range accuracy.' },
+  thermal: { name: 'Thermal Scope', description: 'High magnification improves long-range aim and accuracy.' },
+  extendedMags: { name: 'Extended Mags', description: 'Increases magazine capacity by 50%.' },
+  fmj: { name: 'FMJ', description: 'Improves bullet penetration through cover.' },
+  rapidFire: { name: 'Rapid Fire', description: 'Increases fire rate with a recoil trade-off.' },
+  tacticalKnife: { name: 'Tactical Knife', description: 'Extends melee reach while this weapon is equipped.' },
+  grenadeLauncher: { name: 'Grenade Launcher', description: 'M203 / GP-25 launcher converts rounds into explosive area damage.' },
+}
+
+export function attachmentsFor(id: WeaponId): AttachmentId[] {
+  const cls = WEAPONS[id].class
+  if (cls === 'launcher' || cls === 'grenade' || cls === 'melee') return []
+  const options: AttachmentId[] = [
+    'redDot', 'holographic', 'silencer', 'heartbeatSensor', 'acog', 'thermal', 'extendedMags', 'fmj',
+  ]
+  if (cls !== 'shotgun' && cls !== 'pistol' && cls !== 'machinePistol') options.push('grip')
+  if (WEAPONS[id].auto) options.push('rapidFire')
+  if (cls === 'pistol' || cls === 'machinePistol') options.push('tacticalKnife')
+  if (cls === 'assault') options.push('grenadeLauncher')
+  return options
+}
+
+export function attachmentFor(loadout: Loadout, id: WeaponId): AttachmentId | null {
+  if (id === loadout.primary) return loadout.primaryAttachment && attachmentsFor(id).includes(loadout.primaryAttachment) ? loadout.primaryAttachment : null
+  if (id === loadout.secondary) return loadout.secondaryAttachment && attachmentsFor(id).includes(loadout.secondaryAttachment) ? loadout.secondaryAttachment : null
+  return null
+}
+
+export function weaponWithAttachment(id: WeaponId, attachment: AttachmentId | null): WeaponDef {
+  const def = WEAPONS[id]
+  if (!attachment || !attachmentsFor(id).includes(attachment)) return def
+  const out = { ...def }
+  switch (attachment) {
+    case 'redDot':
+    case 'holographic':
+      out.adsSpread *= 0.8
+      break
+    case 'silencer':
+      out.damageClose *= 0.92
+      out.damageFar *= 0.78
+      out.rangeFar *= 0.9
+      break
+    case 'grip':
+      out.recoilV *= 0.82
+      out.recoilH *= 0.55
+      break
+    case 'acog':
+      out.adsSpread *= 0.72
+      out.adsZoom *= 0.8
+      out.adsTime *= 1.12
+      break
+    case 'thermal':
+      out.adsSpread *= 0.68
+      out.adsZoom *= 0.72
+      out.adsTime *= 1.2
+      break
+    case 'extendedMags':
+      out.magSize = Math.ceil(out.magSize * 1.5)
+      break
+    case 'fmj':
+      out.penetration = 1
+      break
+    case 'rapidFire':
+      out.rpm *= 1.2
+      out.recoilV *= 1.15
+      break
+    case 'grenadeLauncher':
+      out.damageClose = 0
+      out.damageFar = 0
+      out.pellets = 1
+      break
+    case 'heartbeatSensor':
+    case 'tacticalKnife':
+      break
+  }
+  return out
+}
 
 /** Damage for a single bullet/pellet at distance (before hit-zone multiplier). */
 export function damageAt(def: WeaponDef, distance: number): number {

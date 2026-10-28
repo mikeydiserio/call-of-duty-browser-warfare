@@ -140,7 +140,7 @@ export class SoldierVisual {
     a.action = pose.action ?? 'none'
     a.actionT = clamp(pose.actionT ?? 0, 0, 1)
     a.emptyReload = !!pose.emptyReload
-    a.pistol = WEAPONS[pose.weaponId].class === 'pistol'
+    a.pistol = WEAPONS[pose.weaponId].class === 'pistol' || WEAPONS[pose.weaponId].class === 'machinePistol'
     a.ladder = pose.ladder ? yawFromDirection(-pose.ladder.normal.x, -pose.ladder.normal.z) : null
     a.lod = lod > 0
     this.anim.update(a)

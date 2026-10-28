@@ -6,7 +6,9 @@ import type { Actor, DamageInfo, GameModeId, ObjectiveId, Surface, Team, WeaponI
 /** Every cross-system notification. Payload vectors are owned by the emitter — clone if you keep them. */
 export interface GameEvents {
   /** A weapon discharged (player or bot). origin = muzzle in world space. */
-  'weapon:fire': { shooter: Actor; weaponId: WeaponId; origin: Vector3; direction: Vector3; suppressed: boolean }
+  'weapon:fire': { shooter: Actor; weaponId: WeaponId; origin: Vector3; direction: Vector3; suppressed: boolean; /** Fired the under-barrel grenade launcher. */ launcher?: boolean }
+  /** Sniper hold-breath started ('in'), released ('out'), or ran out of air ('gasp'). */
+  'weapon:holdbreath': { actor: Actor; state: 'in' | 'out' | 'gasp' }
   'weapon:dryfire': { shooter: Actor; weaponId: WeaponId }
   'weapon:reload': { actor: Actor; weaponId: WeaponId; stage: 'start' | 'magout' | 'magin' | 'boltback' | 'boltforward' | 'end' }
   'weapon:switch': { actor: Actor; weaponId: WeaponId }
@@ -24,6 +26,8 @@ export interface GameEvents {
   'actor:land': { actor: Actor; surface: Surface; impact: number }
   /** Local player landed a hit — hitmarker. */
   'player:hitmarker': { headshot: boolean; kill: boolean }
+  /** Pin pulled: the frag is cooking. */
+  'grenade:cook': { actor: Actor }
   'grenade:throw': { actor: Actor }
   'grenade:bounce': { position: Vector3; surface: Surface }
   'grenade:explode': { position: Vector3; owner: Actor | null }
@@ -31,6 +35,12 @@ export interface GameEvents {
   'score:changed': { tf141: number; opfor: number }
   /** Points popup ("+100") for the local player. */
   'player:points': { amount: number; reason: string }
+  /** Local player took ammo from a dropped gun. */
+  'player:scavenge': { weaponId: WeaponId; rounds: number }
+  /** A dead soldier's gun hit the floor (host → clients; `age` > 0 when replayed to a late joiner). */
+  'drop:spawn': { id: number; weaponId: WeaponId; position: Vector3; velocity: Vector3; rounds: number; age: number }
+  /** Rounds left in a dropped gun changed (host → clients). */
+  'drop:rounds': { id: number; rounds: number }
   'killstreak:earned': { actor: Actor; streak: KillstreakId }
   'killstreak:used': { actor: Actor; streak: KillstreakId; team: Team }
   /** Host → everyone, ~10 Hz: live killstreak entities + EMP / Counter-UAV / nuke state (clients mirror it). */

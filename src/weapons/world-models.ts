@@ -1,7 +1,9 @@
-// Third-person weapon models for bots: the same procedural profiles as the
-// viewmodel, baked into one vertex-coloured mesh per weapon (one draw call).
+// Third-person weapon models for bots, drops and remote players: the textured
+// MW2 meshes from world.glb when loaded, otherwise the procedural profiles baked
+// into one vertex-coloured mesh per weapon (one draw call).
 import { type BufferGeometry, Group, Mesh, MeshStandardMaterial, type Object3D } from 'three'
 import type { WeaponId } from '../core/types'
+import { mw2WorldModel } from './gun-kit'
 import { WORLD_COLORS, type MatKey } from './materials'
 import { getSpec } from './rigs'
 
@@ -36,6 +38,13 @@ function geometryFor(id: WeaponId): BufferGeometry {
  * cheap to call many times.
  */
 export function createWorldWeaponModel(id: WeaponId): Object3D {
+  const mw2 = mw2WorldModel(id)
+  if (mw2) {
+    const copy = mw2.clone()
+    copy.name = `wm_${id}`
+    copy.position.set(0, 0, 0)
+    return copy
+  }
   const root = new Group()
   root.name = `wm_${id}`
   const mesh = new Mesh(geometryFor(id), mat)

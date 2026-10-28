@@ -1,22 +1,30 @@
-import type { Loadout, PerkId, WeaponId } from '../core/types'
+import { CLASS_COUNT, CLASS_NAME_MAX, defaultClassName, normalizeClassName } from '../core/classes'
+import type { AttachmentId, DeathstreakId, Loadout, PerkId, WeaponId } from '../core/types'
 import { KILLSTREAK_IDS, KILLSTREAKS, killstreakSvg, normalizeKillstreaks, type KillstreakId } from '../game/killstreaks/defs'
-import { PRIMARIES, SECONDARIES, WEAPONS } from '../weapons/defs'
+import { attachmentFor, ATTACHMENTS, attachmentsFor, PRIMARIES, SECONDARIES, WEAPONS, weaponWithAttachment } from '../weapons/defs'
 import { WeaponPreview, weaponThumbnail } from '../weapons/preview'
-import { CLASS_LABEL, PERK_TIERS, PERKS, WEAPON_BLURB, weaponStats, type WeaponStats } from './data'
+import { CLASS_LABEL, DEATHSTREAKS, DEATHSTREAK_IDS, PERK_TIERS, PERKS, WEAPON_BLURB, weaponStats, type WeaponStats } from './data'
 import { el, setClass } from './dom'
-import { perkSvg } from './icons'
+import { deathstreakSvg, perkSvg } from './icons'
 import { keyHints, type Screen, type UiCtx } from './screen'
 
-const LOADOUT_KEY = 'mw-rust-loadout'
-
-type Slot = { kind: 'primary' } | { kind: 'secondary' } | { kind: 'perk'; tier: 0 | 1 | 2 } | { kind: 'streak'; idx: 0 | 1 | 2 }
+type Slot =
+  | { kind: 'primary' }
+  | { kind: 'secondary' }
+  | { kind: 'attachment'; target: 'primary' | 'secondary' }
+  | { kind: 'perk'; tier: 0 | 1 | 2 }
+  | { kind: 'deathstreak' }
+  | { kind: 'streak'; idx: 0 | 1 | 2 }
 
 const SLOTS: { slot: Slot; label: string }[] = [
   { slot: { kind: 'primary' }, label: 'PRIMARY WEAPON' },
   { slot: { kind: 'secondary' }, label: 'SECONDARY WEAPON' },
+  { slot: { kind: 'attachment', target: 'primary' }, label: 'PRIMARY ATTACHMENT' },
+  { slot: { kind: 'attachment', target: 'secondary' }, label: 'SECONDARY ATTACHMENT' },
   { slot: { kind: 'perk', tier: 0 }, label: 'PERK 1' },
   { slot: { kind: 'perk', tier: 1 }, label: 'PERK 2' },
   { slot: { kind: 'perk', tier: 2 }, label: 'PERK 3' },
+  { slot: { kind: 'deathstreak' }, label: 'DEATHSTREAK' },
   { slot: { kind: 'streak', idx: 0 }, label: 'KILLSTREAK 1' },
   { slot: { kind: 'streak', idx: 1 }, label: 'KILLSTREAK 2' },
   { slot: { kind: 'streak', idx: 2 }, label: 'KILLSTREAK 3' },
@@ -49,18 +57,67 @@ export class ClassScreen implements Screen {
   private optIdx = 0
   private focus: 'slots' | 'opts' = 'slots'
   private optIds: string[] = []
+  private head: HTMLElement
+  private classTabs: HTMLElement[] = []
+  private className: HTMLElement
+  private nameInput: HTMLInputElement
 
   constructor(private ctx: UiCtx) {
     const root = this.el
-    const head = el('div', 'screen-head', root)
+    const head = (this.head = el('div', 'screen-head', root))
     el('div', 'menu-header', head, 'CREATE A CLASS')
-    el('div', 'menu-sub', head, 'CUSTOM CLASS 1')
+    // Active class name, with inline rename.
+    const nameRow = el('div', 'cac-name-row', head)
+    this.className = el('div', 'menu-sub cac-cname', nameRow)
+    const rename = el('button', 'cac-rename', nameRow, 'RENAME')
+    rename.type = 'button'
+    rename.setAttribute('aria-label', 'Rename class')
+    rename.addEventListener('mouseenter', () => this.ctx.sfx('hover'))
+    rename.addEventListener('click', () => this.startRename())
+    const editRow = el('div', 'cac-name-edit', head)
+    this.nameInput = el('input', 'cac-name-input', editRow)
+    this.nameInput.type = 'text'
+    this.nameInput.maxLength = CLASS_NAME_MAX
+    this.nameInput.spellcheck = false
+    this.nameInput.setAttribute('autocomplete', 'off')
+    this.nameInput.setAttribute('aria-label', `Class name, up to ${CLASS_NAME_MAX} characters`)
+    const save = el('button', 'cac-rename', editRow, 'SAVE')
+    save.type = 'button'
+    save.addEventListener('click', () => this.commitRename())
+    const cancel = el('button', 'cac-rename subtle', editRow, 'CANCEL')
+    cancel.type = 'button'
+    // mousedown fires before the input's blur, so Cancel wins over blur-commits.
+    cancel.addEventListener('mousedown', (e) => e.preventDefault())
+    cancel.addEventListener('click', () => this.cancelRename())
+    this.nameInput.addEventListener('blur', () => {
+      if (this.head.classList.contains('renaming')) this.commitRename()
+    })
     el('div', 'menu-header-line', head)
+
+    // The five custom class slots.
+    const tabs = el('div', 'cac-classes', root)
+    for (let i = 0; i < CLASS_COUNT; i++) {
+      const t = el('button', 'cac-class', tabs)
+      t.type = 'button'
+      t.innerHTML = `<span class="cc-num">CLASS ${i + 1}</span><span class="cc-name"></span><span class="cc-use">IN USE</span>`
+      t.title = 'Double-click to rename'
+      t.addEventListener('mouseenter', () => this.ctx.sfx('hover'))
+      t.addEventListener('click', () => this.selectClass(i, true))
+      t.addEventListener('dblclick', () => this.startRename())
+      this.classTabs.push(t)
+    }
 
     const cols = el('div', 'cac-cols', root)
     const left = el('div', 'cac-slots', cols)
+    const primaryRow = el('div', 'cac-slot-row', left)
+    const secondaryRow = el('div', 'cac-slot-row', left)
     SLOTS.forEach((s, i) => {
-      const b = el('button', 'cac-slot', left)
+      const parent = s.slot.kind === 'primary' || (s.slot.kind === 'attachment' && s.slot.target === 'primary')
+        ? primaryRow
+        : s.slot.kind === 'secondary' || (s.slot.kind === 'attachment' && s.slot.target === 'secondary')
+          ? secondaryRow
+          : left
+      const b = el('button', s.slot.kind === 'attachment' ? 'cac-slot cac-attachment-slot' : 'cac-slot', parent)
       b.type = 'button'
       b.innerHTML = `<span class="cs-label">${s.label}</span><span class="cs-name"></span><span class="cs-ico"></span>`
       b.addEventListener('mouseenter', () => this.selectSlot(i, true))
@@ -97,6 +154,8 @@ export class ClassScreen implements Screen {
     this.optsEl = el('div', 'cac-opts panel', cols)
 
     keyHints(root, [
+      ['Q E / 1-5', 'CLASS'],
+      ['R', 'RENAME'],
       ['↑ ↓', 'SELECT'],
       ['→ / ENTER', 'CHOOSE'],
       ['←', 'BACK TO SLOTS'],
@@ -120,6 +179,8 @@ export class ClassScreen implements Screen {
     const l = this.loadout
     if (s.kind === 'primary') return l.primary
     if (s.kind === 'secondary') return l.secondary
+    if (s.kind === 'attachment') return l[s.target === 'primary' ? 'primaryAttachment' : 'secondaryAttachment'] ?? 'none'
+    if (s.kind === 'deathstreak') return l.deathstreak ?? 'none'
     if (s.kind === 'streak') return normalizeKillstreaks(l.killstreaks)[s.idx]!
     return l.perks[s.tier] ?? PERK_TIERS[s.tier]![0]!
   }
@@ -128,25 +189,72 @@ export class ClassScreen implements Screen {
     const s = SLOTS[i]!.slot
     if (s.kind === 'primary') return PRIMARIES
     if (s.kind === 'secondary') return SECONDARIES
+    if (s.kind === 'attachment') return ['none', ...attachmentsFor(this.loadout[s.target])]
+    if (s.kind === 'deathstreak') return ['none', ...DEATHSTREAK_IDS]
     if (s.kind === 'streak') return KILLSTREAK_IDS
     return PERK_TIERS[s.tier]!
   }
 
   enter() {
     this.wpv.setVisible(true)
+    this.cancelRename()
     this.focus = 'slots'
+    setClass(this.el, 'focus-opts', false)
     this.slotIdx = 0
+    this.refreshClasses()
     this.refreshSlots()
     this.selectSlot(0, false)
   }
 
   leave() {
     this.wpv.setVisible(false)
-    try {
-      localStorage.setItem(LOADOUT_KEY, JSON.stringify(this.loadout))
-    } catch {
-      /* ignore */
-    }
+    if (this.head.classList.contains('renaming')) this.commitRename()
+    this.ctx.game.saveClasses()
+  }
+
+  /** Switch which class is being edited; it also becomes the class used on the next spawn. */
+  private selectClass(i: number, sound: boolean) {
+    const g = this.ctx.game
+    const n = ((i % CLASS_COUNT) + CLASS_COUNT) % CLASS_COUNT
+    if (this.head.classList.contains('renaming')) this.commitRename()
+    if (n === g.activeClass) return
+    if (sound) this.ctx.sfx('select')
+    g.activeClass = n
+    g.saveClasses()
+    this.refreshClasses()
+    this.refreshSlots()
+    this.selectSlot(this.slotIdx, false)
+  }
+
+  private refreshClasses() {
+    const g = this.ctx.game
+    this.className.textContent = g.classes[g.activeClass]!.name.toUpperCase()
+    this.classTabs.forEach((t, i) => {
+      t.querySelector('.cc-name')!.textContent = g.classes[i]!.name.toUpperCase()
+      setClass(t, 'sel', i === g.activeClass)
+    })
+  }
+
+  private startRename() {
+    const g = this.ctx.game
+    this.nameInput.value = g.classes[g.activeClass]!.name
+    this.head.classList.add('renaming')
+    this.nameInput.focus()
+    this.nameInput.select()
+  }
+
+  private commitRename() {
+    const g = this.ctx.game
+    const name = normalizeClassName(this.nameInput.value)
+    g.classes[g.activeClass]!.name = name || defaultClassName(g.activeClass)
+    g.saveClasses()
+    this.cancelRename()
+    this.refreshClasses()
+  }
+
+  private cancelRename() {
+    this.head.classList.remove('renaming')
+    this.nameInput.blur()
   }
 
   private setFocus(f: 'slots' | 'opts') {
@@ -161,7 +269,13 @@ export class ClassScreen implements Screen {
       const e = this.slotEls[i]!
       const name = e.querySelector('.cs-name')!
       const ico = e.querySelector('.cs-ico')!
-      if (s.slot.kind === 'perk') {
+      if (s.slot.kind === 'attachment') {
+        name.textContent = v === 'none' ? 'NO ATTACHMENT' : ATTACHMENTS[v as AttachmentId].name.toUpperCase()
+        ico.textContent = '+'
+      } else if (s.slot.kind === 'deathstreak') {
+        name.textContent = v === 'none' ? 'NONE' : DEATHSTREAKS[v as DeathstreakId].name.toUpperCase()
+        ico.innerHTML = v === 'none' ? '—' : deathstreakSvg(v as DeathstreakId)
+      } else if (s.slot.kind === 'perk') {
         name.textContent = PERKS[v as PerkId].name.toUpperCase()
         ico.innerHTML = perkSvg(v as PerkId)
       } else if (s.slot.kind === 'streak') {
@@ -194,9 +308,15 @@ export class ClassScreen implements Screen {
     this.optIds.forEach((id, i) => {
       const b = el('button', 'opt', o)
       b.type = 'button'
-      if (s.slot.kind === 'perk') {
+      if (s.slot.kind === 'attachment') {
+        const attachment = id === 'none' ? null : ATTACHMENTS[id as AttachmentId]
+        b.innerHTML = `<span class="o-ico">${attachment ? '+' : '—'}</span><span class="o-txt"><span class="o-name">${attachment?.name.toUpperCase() ?? 'NO ATTACHMENT'}</span><span class="o-sub">${attachment?.description ?? 'Use the weapon without an attachment.'}</span></span><span class="o-tick"></span>`
+      } else if (s.slot.kind === 'perk') {
         const p = PERKS[id as PerkId]
         b.innerHTML = `<span class="o-ico">${perkSvg(p.id)}</span><span class="o-txt"><span class="o-name">${p.name.toUpperCase()}</span><span class="o-sub">${p.desc}</span></span><span class="o-tick"></span>`
+      } else if (s.slot.kind === 'deathstreak') {
+        const d = id === 'none' ? null : DEATHSTREAKS[id as DeathstreakId]
+        b.innerHTML = `<span class="o-ico">${d ? deathstreakSvg(d.id) : '—'}</span><span class="o-txt"><span class="o-name">${d?.name.toUpperCase() ?? 'NONE'}</span><span class="o-sub">${d?.desc ?? 'Do not equip a deathstreak reward.'}</span></span><span class="o-tick"></span>`
       } else if (s.slot.kind === 'streak') {
         const k = KILLSTREAKS[id as KillstreakId]
         const inUse = taken.includes(k.id) && taken[s.slot.idx] !== k.id
@@ -233,8 +353,17 @@ export class ClassScreen implements Screen {
     this.ctx.sfx('select')
     const s = SLOTS[this.slotIdx]!.slot
     const l = this.loadout
-    if (s.kind === 'primary') l.primary = id as WeaponId
-    else if (s.kind === 'secondary') l.secondary = id as WeaponId
+    if (s.kind === 'primary') {
+      l.primary = id as WeaponId
+      if (l.primaryAttachment && !attachmentsFor(l.primary).includes(l.primaryAttachment)) l.primaryAttachment = undefined
+    } else if (s.kind === 'secondary') {
+      l.secondary = id as WeaponId
+      if (l.secondaryAttachment && !attachmentsFor(l.secondary).includes(l.secondaryAttachment)) l.secondaryAttachment = undefined
+    }
+    else if (s.kind === 'attachment') {
+      const key = s.target === 'primary' ? 'primaryAttachment' : 'secondaryAttachment'
+      l[key] = id === 'none' ? undefined : id as AttachmentId
+    }
     else if (s.kind === 'streak') {
       // Picking one already in another slot swaps the two (three unique rewards, MW2).
       const ks = normalizeKillstreaks(l.killstreaks)
@@ -244,6 +373,8 @@ export class ClassScreen implements Screen {
       l.killstreaks = normalizeKillstreaks(ks)
       this.buildOpts()
       this.optIdx = Math.max(0, this.optIds.indexOf(id))
+    } else if (s.kind === 'deathstreak') {
+      l.deathstreak = id === 'none' ? undefined : id as DeathstreakId
     } else {
       const perks = l.perks.slice()
       perks[s.tier] = id as PerkId
@@ -256,6 +387,25 @@ export class ClassScreen implements Screen {
   }
 
   private preview(id: string) {
+    const slot = SLOTS[this.slotIdx]!.slot
+    if (slot.kind === 'attachment') {
+      const attachment = id === 'none' ? null : id as AttachmentId
+      this.previewWeapon(this.loadout[slot.target], attachment)
+      this.pvType.textContent = attachment ? 'WEAPON ATTACHMENT' : 'ATTACHMENT SLOT'
+      this.pvName.textContent = attachment ? ATTACHMENTS[attachment].name.toUpperCase() : 'NO ATTACHMENT'
+      this.pvDesc.textContent = attachment ? ATTACHMENTS[attachment].description : 'Choose an attachment or leave this slot empty.'
+      return
+    }
+    if (slot.kind === 'deathstreak') {
+      const deathstreak = id === 'none' ? null : DEATHSTREAKS[id as DeathstreakId]
+      setClass(this.el, 'perk-view', true)
+      this.pv3d.style.visibility = 'hidden'
+      this.pvPerk.innerHTML = deathstreak ? deathstreakSvg(deathstreak.id, 'big') : ''
+      this.pvType.textContent = 'DEATHSTREAK'
+      this.pvName.textContent = deathstreak?.name.toUpperCase() ?? 'NONE'
+      this.pvDesc.textContent = deathstreak?.desc ?? 'Choose a deathstreak reward or leave this slot empty.'
+      return
+    }
     if (id in KILLSTREAKS) {
       const k = KILLSTREAKS[id as KillstreakId]
       setClass(this.el, 'perk-view', true)
@@ -277,7 +427,12 @@ export class ClassScreen implements Screen {
       this.pvDesc.textContent = p.desc
       return
     }
-    const w = WEAPONS[id as WeaponId]
+    this.previewWeapon(id as WeaponId, attachmentFor(this.loadout, id as WeaponId))
+  }
+
+  private previewWeapon(id: WeaponId, attachment: AttachmentId | null) {
+    const w = weaponWithAttachment(id, attachment)
+    setClass(this.el, 'perk-view', false)
     this.pvPerk.textContent = ''
     this.pv3d.style.visibility = 'visible'
     this.wpv.setWeapon(w.id)
@@ -285,7 +440,13 @@ export class ClassScreen implements Screen {
     this.pvName.textContent = w.name.toUpperCase()
     this.pvDesc.textContent = WEAPON_BLURB[w.id] ?? ''
     const st = weaponStats(w)
-    const eq = weaponStats(WEAPONS[this.slotValue(this.slotIdx) as WeaponId] ?? w)
+    const slot = SLOTS[this.slotIdx]!.slot
+    const equipped = slot.kind === 'attachment'
+      ? this.loadout[slot.target]
+      : slot.kind === 'primary' || slot.kind === 'secondary'
+        ? this.loadout[slot.kind]
+        : id
+    const eq = weaponStats(weaponWithAttachment(equipped, attachmentFor(this.loadout, equipped)))
     for (const [key] of STAT_ROWS) {
       const r = this.statFill.get(key)!
       r.fill.style.transform = `scaleX(${st[key] / 100})`
@@ -295,6 +456,33 @@ export class ClassScreen implements Screen {
   }
 
   key(e: KeyboardEvent) {
+    if (document.activeElement === this.nameInput) {
+      if (e.code === 'Enter') {
+        e.preventDefault()
+        this.ctx.sfx('select')
+        this.commitRename()
+      } else if (e.code === 'Escape') {
+        e.preventDefault()
+        this.ctx.sfx('back')
+        this.cancelRename()
+      }
+      return
+    }
+    if (e.code === 'KeyQ' || e.code === 'KeyE') {
+      this.selectClass(this.ctx.game.activeClass + (e.code === 'KeyE' ? 1 : -1), true)
+      return
+    }
+    const digit = /^Digit([1-9])$/.exec(e.code)
+    if (digit && Number(digit[1]) <= CLASS_COUNT) {
+      this.selectClass(Number(digit[1]) - 1, true)
+      return
+    }
+    if (e.code === 'KeyR') {
+      e.preventDefault() // keep the R out of the input it's about to focus
+      this.ctx.sfx('select')
+      this.startRename()
+      return
+    }
     const down = e.code === 'ArrowDown' || e.code === 'KeyS'
     const up = e.code === 'ArrowUp' || e.code === 'KeyW'
     if (this.focus === 'slots') {

@@ -7,8 +7,8 @@
 import { Euler, Quaternion, Vector3 } from 'three'
 import type { Game } from '../core/game'
 import { clamp, damp, DEG, directionFromYawPitch, lerp, rand } from '../core/math'
-import type { Actor, InputState, Loadout, WeaponDef, WeaponId } from '../core/types'
-import { WEAPONS } from './defs'
+import type { Actor, AttachmentId, InputState, Loadout, WeaponDef, WeaponId } from '../core/types'
+import { attachmentFor, weaponWithAttachment, WEAPONS } from './defs'
 import { ScopeOverlay } from './scope'
 import { type ActionKind, type AnimInput, Viewmodel } from './viewmodel'
 
@@ -49,6 +49,7 @@ interface Slot {
   def: WeaponDef
   mag: number
   reserve: number
+  attachment: AttachmentId | null
 }
 
 /** Frag fuse (s) from the moment the pin is pulled. */
@@ -90,8 +91,8 @@ export class WeaponSystem {
   private recoil = { pitch: 0, yaw: 0 }
   private recoilOut = { pitch: 0, yaw: 0 }
   private slots: Slot[] = [
-    { def: WEAPONS.acr, mag: 30, reserve: 120 },
-    { def: WEAPONS.usp45, mag: 12, reserve: 48 },
+    { def: WEAPONS.acr, mag: 30, reserve: 120, attachment: null },
+    { def: WEAPONS.usp45, mag: 12, reserve: 48, attachment: null },
   ]
   private slot = 0
   private pendingSlot = 0
@@ -120,6 +121,7 @@ export class WeaponSystem {
   private scopeSwayX = 0
   private scopeSwayY = 0
   private breath = 1
+  private holdingBreath = false
   /** First-person presentation (player only). */
   readonly vm: Viewmodel | null = null
   private scope: ScopeOverlay | null = null
@@ -141,7 +143,7 @@ export class WeaponSystem {
     if (owner.isPlayer) {
       const vm = new Viewmodel(game.render)
       ;(this as { vm: Viewmodel | null }).vm = vm
-      vm.prewarm(['acr', 'm4a1', 'ak47', 'ump45', 'intervention', 'spas12', 'usp45', 'deagle'])
+      vm.prewarm(['acr', 'm4a1', 'ak47', 'ump45', 'intervention', 'rpd', 'rpg7', 'aa12', 'spas12', 'usp45', 'g18', 'deagle'])
       vm.setWeapon(this.current.id)
       vm.setVisible(false)
       this.scope = new ScopeOverlay()
@@ -152,16 +154,21 @@ export class WeaponSystem {
 
   /** Reset weapons and ammo for a new life. */
   setLoadout(loadout: Loadout) {
-    this.slots[0] = this.freshSlot(loadout.primary)
-    this.slots[1] = this.freshSlot(loadout.secondary)
+    this.slots[0] = this.freshSlot(loadout.primary, loadout.primaryAttachment)
+    this.slots[1] = this.freshSlot(loadout.secondary, loadout.secondaryAttachment)
     this.slot = this.pendingSlot = 0
     this.current = this.slots[0]!.def
-    this.vm?.setWeapon(this.current.id)
+    this.syncViewmodel()
   }
 
-  private freshSlot(id: WeaponId): Slot {
-    const def = WEAPONS[id]
-    return { def, mag: def.magSize, reserve: def.reserve }
+  /** Point the viewmodel at the held weapon (MW2 rigs pick their silenced sequence set from the attachment). */
+  private syncViewmodel() {
+    this.vm?.setWeapon(this.current.id, this.slotState.attachment === 'silencer')
+  }
+
+  private freshSlot(id: WeaponId, attachment: AttachmentId | null = null): Slot {
+    const def = weaponWithAttachment(id, attachment)
+    return { def, mag: def.magSize, reserve: def.reserve, attachment }
   }
 
   private get slotState(): Slot {
@@ -188,7 +195,7 @@ export class WeaponSystem {
 
     // ── sprint & ladder ──
     const sprinting = move.sprinting && !move.onLadder
-    const sprintOutTime = def.class === 'pistol' ? SPRINT_OUT.pistol : SPRINT_OUT.rifle
+    const sprintOutTime = def.class === 'pistol' || def.class === 'machinePistol' ? SPRINT_OUT.pistol : SPRINT_OUT.rifle
     if (sprinting) this.sprintOut = sprintOutTime
     else this.sprintOut = Math.max(0, this.sprintOut - dt)
     this.sprintAmt = damp(this.sprintAmt, sprinting ? 1 : 0, sprinting ? 9 : 1 / Math.max(0.05, sprintOutTime * 0.45), dt)
@@ -263,7 +270,11 @@ export class WeaponSystem {
     // ── sniper scope sway / hold breath ──
     const isSniper = def.class === 'sniper'
     const holdBreath = isSniper && input.sprint && this.adsRaw > 0.9 && this.breath > 0
-    this.breath = holdBreath ? Math.max(0, this.breath - dt / 4.5) : Math.min(1, this.breath + dt / 3)
+    if (holdBreath !== this.holdingBreath) {
+      this.holdingBreath = holdBreath
+      this.game.events.emit('weapon:holdbreath', { actor: this.owner, state: holdBreath ? 'in' : this.breath <= 0 ? 'gasp' : 'out' })
+    }
+    this.breath =holdBreath ? Math.max(0, this.breath - dt / 4.5) : Math.min(1, this.breath + dt / 3)
     const swayK = (holdBreath ? 0.12 : 1) * (move.stance === 2 ? 0.35 : move.stance === 1 ? 0.65 : 1)
     const tt = this.time
     this.scopeSwayX = damp(this.scopeSwayX, (Math.sin(tt * 0.9) * 0.6 + Math.sin(tt * 1.7 + 1) * 0.4) * swayK, 4, dt)
@@ -301,7 +312,7 @@ export class WeaponSystem {
       m.onLadder = move.onLadder
       m.lookDX = move.lookDX
       m.lookDY = move.lookDY
-      if (fired) vm.onFire(def.recoilV, def.recoilH, this.adsRaw, def.class, false)
+      if (fired) vm.onFire(def.recoilV, def.recoilH, this.adsRaw, def.class, st.attachment === 'silencer', 60 / def.rpm)
       vm.update(this.timeScale === 0 ? 0 : realDt * this.timeScale, a)
       vm.setVisible(this.alive && !this.scoped)
       const h = this.game.render.renderer.domElement.clientHeight || innerHeight
@@ -349,13 +360,18 @@ export class WeaponSystem {
         .addScaledVector(_right, Math.cos(th) * r + sx)
         .addScaledVector(_up, Math.sin(th) * r + sy)
         .normalize()
-      const res = this.game.combat.fireBullet(owner, def.id, _eye, _dir, false)
+      const attachment = st.attachment
+      const res = this.game.combat.fireBullet(owner, def.id, _eye, _dir, false, undefined, attachment)
       if (i === 0 && (this.shotCount % TRACER_EVERY === 1 || pellets > 1 || !def.auto)) {
         _end.copy(res.point)
         this.game.events.emit('bullet:tracer', { from: _muzzle, to: _end, shooter: owner })
       }
     }
-    this.game.events.emit('weapon:fire', { shooter: owner, weaponId: def.id, origin: _muzzle, direction: _fwd, suppressed: false })
+    const attachment = st.attachment
+    this.game.events.emit('weapon:fire', {
+      shooter: owner, weaponId: def.id, origin: _muzzle, direction: _fwd,
+      suppressed: attachment === 'silencer', launcher: attachment === 'grenadeLauncher',
+    })
 
     // Camera recoil.
     const adsK = 1 - this.adsRaw * 0.25
@@ -415,6 +431,7 @@ export class WeaponSystem {
     if (st.mag >= def.magSize || st.reserve <= 0) return
     if (this.action !== 'none') return
     this.actionEmpty = st.mag === 0
+    // Shotguns (SPAS-12, M1014) are tube-fed: shell by shell.
     if (def.class === 'shotgun') this.setAction('shellStart', 0.38 * this.sohMul())
     else this.setAction('reload', (this.actionEmpty ? def.reloadEmptyTime : def.reloadTime) * this.sohMul())
     this.emitReload('start')
@@ -434,7 +451,7 @@ export class WeaponSystem {
     if (to === this.slot) return
     if (this.isReloading()) this.cancelReload()
     this.pendingSlot = to
-    this.setAction('drop', this.current.class === 'pistol' ? 0.22 : 0.3)
+    this.setAction('drop', this.current.class === 'pistol' || this.current.class === 'machinePistol' ? 0.22 : 0.3)
   }
 
   private startKnife() {
@@ -451,6 +468,7 @@ export class WeaponSystem {
     this.fragReleaseQueued = false
     this.cookT = 0
     this.setAction('fragPull', 0.5)
+    this.game.events.emit('grenade:cook', { actor: this.owner })
   }
 
   private throwFrag(cook: number, velocityScale = 1) {
@@ -535,11 +553,11 @@ export class WeaponSystem {
         if (u >= 1) {
           this.slot = this.pendingSlot
           this.current = this.slotState.def
-          this.vm?.setWeapon(this.current.id)
+          this.syncViewmodel()
           this.adsRaw = 0
           this.heat = 0
           this.game.events.emit('weapon:switch', { actor: this.owner, weaponId: this.current.id })
-          this.setAction('raise', this.current.class === 'pistol' ? 0.32 : 0.42)
+          this.setAction('raise', this.current.class === 'pistol' || this.current.class === 'machinePistol' ? 0.32 : 0.42)
         }
         break
       case 'raise':
@@ -551,7 +569,7 @@ export class WeaponSystem {
       case 'knife':
         if (!this.meleeDone && u >= 0.24) {
           this.meleeDone = true
-          this.game.combat.melee(this.owner)
+          this.game.combat.melee(this.owner, this.slotState.attachment)
         }
         if (u >= 1) this.action = 'none'
         break
@@ -608,8 +626,12 @@ export class WeaponSystem {
     h.frags = this.frags
     h.reloading = this.isReloading()
     h.otherWeaponName = other.def.name
-    h.fireMode = st.def.class === 'sniper' ? 'BOLT' : st.def.class === 'shotgun' ? 'PUMP' : st.def.auto ? 'AUTO' : 'SEMI'
+    h.fireMode = st.def.class === 'sniper' ? 'BOLT' : st.def.class === 'shotgun' && !st.def.auto ? 'PUMP' : st.def.auto ? 'AUTO' : 'SEMI'
     return h
+  }
+
+  get attachmentId(): AttachmentId | null {
+    return this.slotState.attachment
   }
 
   /** Owner died — hide viewmodel, cancel actions, drop cooked grenade. */
@@ -638,17 +660,53 @@ export class WeaponSystem {
     this.frags = Math.max(this.frags, 1)
   }
 
+  /**
+   * Walked over a dropped gun: top up reserves of carried weapons of the same
+   * class, up to their spawn reserve. Returns the rounds taken.
+   */
+  scavenge(id: WeaponId, rounds: number): number {
+    const cls = WEAPONS[id].class
+    let taken = 0
+    for (const s of this.slots) {
+      if (s.def.class !== cls) continue
+      const take = Math.min(rounds - taken, s.def.reserve - s.reserve)
+      if (take <= 0) continue
+      s.reserve += take
+      taken += take
+    }
+    return taken
+  }
+
+  /** Gun in hand and the rounds left in it (magazine + reserve) — what a death drops. */
+  heldRounds(): { weaponId: WeaponId; rounds: number } {
+    const st = this.slotState
+    return { weaponId: st.def.id, rounds: st.mag + st.reserve }
+  }
+
+  /** Rounds `scavenge(id, …)` could still take (room left in same-class reserves). */
+  scavengeRoom(id: WeaponId): number {
+    const cls = WEAPONS[id].class
+    let room = 0
+    for (const s of this.slots) if (s.def.class === cls) room += Math.max(0, s.def.reserve - s.reserve)
+    return room
+  }
+
   /** Owner spawned — refill ammo, raise weapon animation. */
   onSpawn() {
     const l = this.game.loadout
-    if (this.slots[0]!.def.id !== l.primary || this.slots[1]!.def.id !== l.secondary) this.setLoadout(l)
+    if (
+      this.slots[0]!.def.id !== l.primary ||
+      this.slots[1]!.def.id !== l.secondary ||
+      this.slots[0]!.attachment !== attachmentFor(l, l.primary) ||
+      this.slots[1]!.attachment !== attachmentFor(l, l.secondary)
+    ) this.setLoadout(l)
     for (const s of this.slots) {
       s.mag = s.def.magSize
       s.reserve = s.def.reserve
     }
     this.slot = this.pendingSlot = 0
     this.current = this.slots[0]!.def
-    this.vm?.setWeapon(this.current.id)
+    this.syncViewmodel()
     this.vm?.reset()
     this.frags = 1
     this.alive = true
@@ -659,6 +717,7 @@ export class WeaponSystem {
     this.sprintOut = 0
     this.recoil.pitch = this.recoil.yaw = 0
     this.breath = 1
+    this.holdingBreath = false
     this.firstRaise = true
     this.setAction('raise', 0.6)
     this.firstRaise = true

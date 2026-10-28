@@ -23,6 +23,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import type { Team } from '../core/types'
 import { COLS, createSoldierAtlas, MARGIN, TILE } from './camo'
 import { buildOpforBody } from './opfor-kit'
+import { buildTf141Body } from './tf141-kit'
 
 export const BONE_ORDER = [
   'pelvis', 'spine', 'chest', 'neck', 'head',
@@ -512,10 +513,8 @@ const tint = (c: number, v: number) => C(c).multiplyScalar(v)
 
 export function buildSoldier(team: Team, rnd: () => number): SoldierRig {
   const pick = <A>(arr: readonly A[]): A => arr[Math.floor(rnd() * arr.length)]!
-  if (team === 'opfor') {
-    const imported = buildOpforBody(rnd)
-    if (imported) return assembleRig(imported.geometry, imported.material, pick(SKIN_TONES).clone(), imported.headgear)
-  }
+  const imported = team === 'opfor' ? buildOpforBody(rnd) : buildTf141Body(rnd)
+  if (imported) return assembleRig(imported.geometry, imported.material, pick(SKIN_TONES).clone(), imported.headgear)
   const T = getTemplates()
   const b = new Builder()
   const chance = (p: number) => rnd() < p

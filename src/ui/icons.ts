@@ -1,4 +1,4 @@
-import type { PerkId, Team, WeaponId } from '../core/types'
+import type { DeathstreakId, PerkId, Team, WeaponId } from '../core/types'
 
 /**
  * Hand-drawn vector art for the whole UI: weapon silhouettes (side view, barrel
@@ -11,7 +11,7 @@ interface Art {
   body: string
 }
 
-const WEAPON_ART: Record<WeaponId, Art> = {
+const WEAPON_ART_BASE: Record<Exclude<WeaponId, 'aa12' | 'g18' | 'rpd' | 'rpg7'>, Art> = {
   acr: {
     vb: '2 18 308 88',
     body: `
@@ -173,6 +173,14 @@ const WEAPON_ART: Record<WeaponId, Art> = {
   },
 }
 
+const WEAPON_ART: Record<WeaponId, Art> = {
+  ...WEAPON_ART_BASE,
+  aa12: WEAPON_ART_BASE.spas12,
+  g18: WEAPON_ART_BASE.usp45,
+  rpd: WEAPON_ART_BASE.ak47,
+  rpg7: WEAPON_ART_BASE.intervention,
+}
+
 export function weaponSvg(id: WeaponId, cls = ''): string {
   const a = WEAPON_ART[id]
   if (cls.includes('big')) {
@@ -199,6 +207,10 @@ const PERK_ART: Record<PerkId, string> = {
     <rect x="25" y="12" width="14" height="4" class="d"/><rect x="25" y="20" width="14" height="4" class="d"/><rect x="25" y="28" width="14" height="4" class="d"/>
     <path d="M10 46 A24 24 0 0 0 54 46" stroke="currentColor" stroke-width="5" fill="none" stroke-linecap="round"/>
     <path d="M54 36 V50 H42 Z"/>`,
+  scavenger: `
+    <path d="M14 22 H50 L46 54 H18 Z"/>
+    <path d="M10 16 H54 V23 H10 Z"/>
+    <path d="M32 29 V45 M24 37 H40" stroke="#000" stroke-opacity=".55" stroke-width="4" stroke-linecap="round"/>`,
   stoppingPower: `
     <path d="M4 26 H34 Q50 26 60 32 Q50 38 34 38 H4 Z"/>
     <rect x="4" y="26" width="12" height="12" class="d"/>
@@ -206,6 +218,12 @@ const PERK_ART: Record<PerkId, string> = {
   lightweight: `
     <path d="M52 8 C34 10 14 22 12 44 C12 50 14 54 14 54 C20 52 26 48 30 42 L22 52 C36 50 54 36 52 8 Z"/>
     <path d="M12 56 C22 38 34 24 48 14" stroke="#000" stroke-opacity=".45" stroke-width="2.5" fill="none"/>`,
+  dangerClose: `
+    <path d="M32 5 L58 52 H6 Z"/>
+    <path d="M32 21 V36 M32 44 V46" stroke="#000" stroke-opacity=".6" stroke-width="5" stroke-linecap="round"/>`,
+  coldBlooded: `
+    <path d="M32 5 L55 14 V31 Q52 47 32 59 Q12 47 9 31 V14 Z"/>
+    <path d="M18 32 H46 M32 18 V46 M22 22 L42 42 M42 22 L22 42" stroke="#000" stroke-opacity=".55" stroke-width="3"/>`,
   commando: `
     <path d="M12 52 L46 14 Q52 8 56 12 Q58 16 52 22 L18 56 Z"/>
     <rect x="8" y="48" width="16" height="10" rx="2" transform="rotate(-45 16 53)"/>
@@ -214,10 +232,27 @@ const PERK_ART: Record<PerkId, string> = {
     <circle cx="32" cy="32" r="18" fill="none" stroke="currentColor" stroke-width="4"/>
     <circle cx="32" cy="32" r="4"/>
     <path d="M32 4 V16 M32 48 V60 M4 32 H16 M48 32 H60" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>`,
+  ninja: `
+    <path d="M7 34 Q17 17 32 17 Q47 17 57 34 Q47 47 32 47 Q17 47 7 34 Z"/>
+    <circle cx="32" cy="32" r="8" class="d"/>
+    <path d="M4 54 L60 10" stroke="#000" stroke-opacity=".65" stroke-width="5"/>`,
 }
 
 export function perkSvg(id: PerkId, cls = ''): string {
   return `<svg class="picon ${cls}" viewBox="0 0 64 64" fill="currentColor" aria-hidden="true">${PERK_ART[id]}</svg>`
+}
+
+const DEATHSTREAK_ART: Record<DeathstreakId, string> = {
+  lastStand: `
+    <path d="M9 35 H38 L47 27 H56 V36 L47 44 H27 L22 52 H13 L16 43 H9 Z"/>
+    <path d="M30 35 V28 H42 V35" class="d"/>`,
+  martyrdom: `
+    <path d="M23 15 H41 V22 H45 V50 H19 V22 H23 Z"/>
+    <path d="M27 8 H37 V15 H27 Z M32 27 V41 M25 34 H39" stroke="#000" stroke-opacity=".6" stroke-width="3" stroke-linecap="round"/>`,
+}
+
+export function deathstreakSvg(id: DeathstreakId, cls = ''): string {
+  return `<svg class="picon ${cls}" viewBox="0 0 64 64" fill="currentColor" aria-hidden="true">${DEATHSTREAK_ART[id]}</svg>`
 }
 
 // ─── Misc HUD icons ────────────────────────────────────────────────────────

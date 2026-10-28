@@ -1,4 +1,4 @@
-import type { Object3D } from 'three'
+import type { Object3D, Quaternion } from 'three'
 import { Vector3 } from 'three'
 import { type AnimInput, SoldierAnimator } from '../ai/animator'
 import { SoldierHitboxes } from '../ai/hitbox'
@@ -28,6 +28,7 @@ interface Sample {
 }
 
 const _eye = new Vector3()
+const _scale = new Vector3()
 
 /**
  * An actor driven by the network: a remote human on the host, or any non-local actor
@@ -54,6 +55,9 @@ export class RemotePlayer implements Actor {
   /** Host side: grenades thrown this life (loose anti-cheat). */
   nadesThisLife = 0
   lastFireAt = -10
+  /** Host side: held gun and rounds left in it, as last reported by its owner (-1 = no report yet). */
+  heldWeapon: WeaponId | null = null
+  heldRounds = -1
 
   rig: SoldierRig
   anim: SoldierAnimator
@@ -169,12 +173,24 @@ export class RemotePlayer implements Actor {
     this.anim.reset(0)
     this.rig.root.visible = true
     const m = this.models.get(this.weaponId)
-    if (m && m.parent !== this.rig.root) {
-      this.rig.root.add(m)
-      m.position.set(0, 0, 0)
-      m.rotation.set(0, 0, 0)
+    if (m) {
+      if (m.parent !== this.rig.root) {
+        this.rig.root.add(m)
+        m.position.set(0, 0, 0)
+        m.rotation.set(0, 0, 0)
+      }
+      m.visible = true
     }
     this.hitboxes.invalidate()
+  }
+
+  /** World transform of the gun in hand (for the drop on death); false if none. */
+  heldGunTransform(pos: Vector3, quat: Quaternion): boolean {
+    const m = this.models.get(this.weaponId)
+    if (!m) return false
+    m.updateWorldMatrix(true, false)
+    m.matrixWorld.decompose(pos, quat, _scale)
+    return true
   }
 
   // ─── Actor contract ───────────────────────────────────────────────────────
@@ -196,6 +212,9 @@ export class RemotePlayer implements Actor {
     this.rig.root.visible = true
     this.health = 0
     this.rig.root.updateMatrixWorld(true)
+    // The gun leaves the hand: the host replicates it as a dropped weapon.
+    const gun = this.models.get(this.weaponId)
+    if (gun) gun.visible = false
     this.ragdoll.start(this.velocity, info)
     this.hitboxes.invalidate()
     this.corpseT = 0
@@ -271,7 +290,7 @@ export class RemotePlayer implements Actor {
     const reloading = (this.flags & F_RELOAD) !== 0
     a.action = reloading ? 'reload' : 'none'
     a.actionT = reloading ? (performance.now() / 1000 / 2) % 1 : 0
-    a.pistol = WEAPONS[this.weaponId].class === 'pistol'
+    a.pistol = WEAPONS[this.weaponId].class === 'pistol' || WEAPONS[this.weaponId].class === 'machinePistol'
     this.anim.update(a)
     if (this.anim.footDown && a.grounded) {
       const sp = Math.hypot(this.velocity.x, this.velocity.z)

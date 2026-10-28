@@ -74,12 +74,30 @@ export type WeaponId =
   | 'ump45'
   | 'intervention'
   | 'spas12'
+  | 'aa12'
+  | 'rpd'
+  | 'g18'
+  | 'rpg7'
   | 'usp45'
   | 'deagle'
   | 'frag'
   | 'knife'
 
-export type WeaponClass = 'assault' | 'smg' | 'sniper' | 'shotgun' | 'pistol' | 'grenade' | 'melee'
+export type WeaponClass = 'assault' | 'smg' | 'lmg' | 'sniper' | 'shotgun' | 'pistol' | 'machinePistol' | 'launcher' | 'grenade' | 'melee'
+
+export type AttachmentId =
+  | 'redDot'
+  | 'holographic'
+  | 'silencer'
+  | 'grip'
+  | 'heartbeatSensor'
+  | 'acog'
+  | 'thermal'
+  | 'extendedMags'
+  | 'fmj'
+  | 'rapidFire'
+  | 'tacticalKnife'
+  | 'grenadeLauncher'
 
 export interface WeaponDef {
   id: WeaponId
@@ -335,12 +353,33 @@ export interface RenderContext {
 
 // ─── Loadout ────────────────────────────────────────────────────────────────
 
-export type PerkId = 'marathon' | 'sleightOfHand' | 'stoppingPower' | 'lightweight' | 'commando' | 'steadyAim'
+export type PerkId =
+  | 'marathon'
+  | 'sleightOfHand'
+  | 'scavenger'
+  | 'stoppingPower'
+  | 'lightweight'
+  | 'dangerClose'
+  | 'coldBlooded'
+  | 'commando'
+  | 'steadyAim'
+  | 'ninja'
+
+export type DeathstreakId = 'lastStand' | 'martyrdom'
 
 export interface Loadout {
   primary: WeaponId
   secondary: WeaponId
+  primaryAttachment?: AttachmentId
+  secondaryAttachment?: AttachmentId
   perks: PerkId[]
+  deathstreak?: DeathstreakId
   /** Three killstreak rewards (MW2). Older saves lack it; read through normalizeKillstreaks(). */
   killstreaks?: KillstreakId[]
+}
+
+/** A named Create-a-Class slot. */
+export interface CustomClass {
+  name: string
+  loadout: Loadout
 }

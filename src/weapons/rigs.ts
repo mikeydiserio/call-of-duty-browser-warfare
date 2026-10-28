@@ -6,6 +6,7 @@ import { mat } from './materials'
 import { buildFrag, buildIntervention, buildKnife } from './models-extra'
 import { buildDeagle, buildSPAS12, buildUSP } from './models-other'
 import { buildACR, buildAK47, buildM4A1, buildUMP45, type ModelSpec } from './models-rifles'
+import { buildAA12, buildG18, buildRPD, buildRPG7 } from './models-special'
 import type { RigMeta, Sock, WeaponRig } from './rig'
 
 export const BUILDERS: Record<WeaponId, () => ModelSpec> = {
@@ -14,7 +15,11 @@ export const BUILDERS: Record<WeaponId, () => ModelSpec> = {
   ak47: buildAK47,
   ump45: buildUMP45,
   intervention: buildIntervention,
+  rpd: buildRPD,
+  rpg7: buildRPG7,
+  aa12: buildAA12,
   spas12: buildSPAS12,
+  g18: buildG18,
   usp45: buildUSP,
   deagle: buildDeagle,
   frag: buildFrag,
@@ -91,4 +96,3 @@ export function getViewRig(id: WeaponId): ViewRig {
   rigCache.set(id, r)
   return r
 }
-
